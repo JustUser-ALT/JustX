@@ -408,9 +408,10 @@ local fullbrightSnapshot
 local fullbrightConnection
 
 local function applyFullbright()
-    Lighting.Ambient = Color3.fromRGB(170, 170, 170)
-    Lighting.OutdoorAmbient = Color3.fromRGB(170, 170, 170)
+    Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
     Lighting.Brightness = 2
+    Lighting.ClockTime = 14
+    Lighting.FogEnd = fogEnabled and 1000000 or 100000
     Lighting.GlobalShadows = false
 end
 
@@ -424,6 +425,8 @@ local function setFullbright(enabled)
             Ambient = Lighting.Ambient,
             OutdoorAmbient = Lighting.OutdoorAmbient,
             Brightness = Lighting.Brightness,
+            ClockTime = Lighting.ClockTime,
+            FogEnd = Lighting.FogEnd,
             GlobalShadows = Lighting.GlobalShadows
         }
 
@@ -439,7 +442,12 @@ local function setFullbright(enabled)
             Lighting.Ambient = fullbrightSnapshot.Ambient
             Lighting.OutdoorAmbient = fullbrightSnapshot.OutdoorAmbient
             Lighting.Brightness = fullbrightSnapshot.Brightness
+            Lighting.ClockTime = fullbrightSnapshot.ClockTime
+            Lighting.FogEnd = fullbrightSnapshot.FogEnd
             Lighting.GlobalShadows = fullbrightSnapshot.GlobalShadows
+            if fogEnabled then
+                Lighting.FogEnd = 1000000
+            end
         end
 
         fullbrightSnapshot = nil
@@ -504,7 +512,7 @@ local function setDeleteFog(enabled)
     else
         if fogSnapshot then
             Lighting.FogStart = fogSnapshot.FogStart
-            Lighting.FogEnd = fogSnapshot.FogEnd
+            Lighting.FogEnd = fullbrightEnabled and 100000 or fogSnapshot.FogEnd
         end
 
         for object, values in pairs(atmosphereSnapshots) do
