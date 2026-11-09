@@ -403,6 +403,7 @@ Misc:Dropdown({
     end
 })
 
+local fogEnabled = false
 local fullbrightEnabled = false
 local fullbrightSnapshot
 local fullbrightConnection
@@ -461,7 +462,6 @@ Visual:Toggle({
     Callback = setFullbright
 })
 
-local fogEnabled = false
 local fogSnapshot
 local atmosphereSnapshots = {}
 local fogDescendantConnection
