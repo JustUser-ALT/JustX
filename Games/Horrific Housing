@@ -1,1 +1,865 @@
-Holder
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local Lighting = game:GetService("Lighting")
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+local LibraryUrl = "https://raw.githubusercontent.com/JustUser-ALT/JustXLibrary/main/JustLib.lua"
+local LibraryOk, JL = pcall(function()
+    return loadstring(game:HttpGet(LibraryUrl))()
+end)
+
+if not LibraryOk or type(JL) ~= "table" or type(JL.Window) ~= "function" then
+    return
+end
+
+local Window = JL:Window({
+    Title = "Horrific Housing",
+    Width = 640,
+    Height = 430,
+    Columns = 2,
+    Config = "HorrificHousing",
+    SidebarLabels = true
+})
+
+if not Window then
+    return
+end
+
+local MainTab = Window:Tab({
+    Name = "Main",
+    Icon = "house",
+    Type = "Grid"
+})
+
+local Misc = MainTab:Section({
+    Title = "Misc",
+    Column = 1
+})
+
+local Visual = MainTab:Section({
+    Title = "Visual",
+    Column = 2
+})
+
+local Connections = {}
+local function keepConnection(connection)
+    if connection then
+        table.insert(Connections, connection)
+    end
+    return connection
+end
+
+local function disconnect(connection)
+    if connection then
+        pcall(function()
+            connection:Disconnect()
+        end)
+    end
+end
+
+local fishEnabled = false
+local fishConnection
+local fishGui
+local fishClicked = false
+
+local function getGuiVisible(gui)
+    if not gui or not gui.Parent then
+        return false
+    end
+    if gui:IsA("ScreenGui") then
+        return gui.Enabled
+    end
+    if gui:IsA("GuiObject") then
+        return gui.Visible
+    end
+    return true
+end
+
+local function stopAutoFish()
+    fishEnabled = false
+    disconnect(fishConnection)
+    fishConnection = nil
+    fishGui = nil
+    fishClicked = false
+end
+
+local function setAutoFish(enabled)
+    fishEnabled = enabled
+    disconnect(fishConnection)
+    fishConnection = nil
+    fishGui = nil
+    fishClicked = false
+
+    if not enabled then
+        return
+    end
+
+    fishConnection = RunService.RenderStepped:Connect(function()
+        if not fishEnabled then
+            return
+        end
+
+        local gui = PlayerGui:FindFirstChild("FishMinigameGui")
+        if not gui or not getGuiVisible(gui) then
+            fishGui = nil
+            fishClicked = false
+            return
+        end
+
+        if fishGui ~= gui then
+            fishGui = gui
+            fishClicked = false
+        end
+
+        if fishClicked then
+            return
+        end
+
+        local frame = gui:FindFirstChild("Frame")
+        local canvas = frame and frame:FindFirstChild("CanvasGroup")
+        local root = canvas and canvas:FindFirstChild("Frame")
+        local marker = root and root:FindFirstChild("Marker")
+        local core = root and root:FindFirstChild("Core")
+        local perfect = core and core:FindFirstChild("Perfect")
+        local button = gui:FindFirstChild("button", true)
+
+        if not marker or not perfect or not button or not button:IsA("GuiButton") then
+            return
+        end
+
+        local markerCenter = marker.AbsolutePosition + marker.AbsoluteSize / 2
+        local perfectMin = perfect.AbsolutePosition
+        local perfectMax = perfectMin + perfect.AbsoluteSize
+
+        local inside =
+            markerCenter.X >= perfectMin.X and
+            markerCenter.X <= perfectMax.X and
+            markerCenter.Y >= perfectMin.Y and
+            markerCenter.Y <= perfectMax.Y
+
+        if inside then
+            local fired = pcall(function()
+                firesignal(button.Activated)
+            end)
+
+            if not fired then
+                fired = pcall(function()
+                    button:Activate()
+                end)
+            end
+
+            if fired then
+                fishClicked = true
+            end
+        end
+    end)
+end
+
+Misc:Toggle({
+    Name = "Auto Fish",
+    Default = false,
+    Flag = "HH_AutoFish",
+    Callback = setAutoFish
+})
+
+local GearTable
+local GearList = {}
+local GearImageMap = {}
+
+pcall(function()
+    GearTable = require(ReplicatedStorage:WaitForChild("Gears"):WaitForChild("GearTable"))
+    local gears = GearTable:getGears(true)
+
+    for name, gear in pairs(gears) do
+        if name ~= "UltimateWeapon" and gear and gear.TextureId then
+            local image = tostring(gear.TextureId)
+            if image ~= "" then
+                table.insert(GearList, tostring(name))
+                local key = image:lower():match("%d+") or image:lower()
+                GearImageMap[key] = GearImageMap[key] or {}
+                table.insert(GearImageMap[key], tostring(name))
+            end
+        end
+    end
+end)
+
+table.sort(GearList, function(a, b)
+    return a:lower() < b:lower()
+end)
+
+local selectedGears = {}
+local sinisterEnabled = false
+local registeredPumpkins = {}
+
+local function getGearOptions()
+    return GearList
+end
+
+local function normalizeImage(image)
+    image = tostring(image or ""):lower()
+    return image:match("%d+") or image
+end
+
+local function isSelectedGearImage(image)
+    local names = GearImageMap[normalizeImage(image)]
+    if not names then
+        return false
+    end
+
+    for _, name in ipairs(names) do
+        if selectedGears[name] then
+            return true, name
+        end
+    end
+
+    return false
+end
+
+local function activatePrompt(prompt)
+    if not prompt or not prompt.Parent or not prompt.Enabled then
+        return false
+    end
+
+    pcall(function()
+        prompt.HoldDuration = 0
+    end)
+
+    if type(fireproximityprompt) == "function" then
+        local ok = pcall(function()
+            fireproximityprompt(prompt)
+        end)
+        if ok then
+            return true
+        end
+    end
+
+    local ok = pcall(function()
+        prompt:InputHoldBegin()
+        task.wait(0.05)
+        prompt:InputHoldEnd()
+    end)
+
+    return ok
+end
+
+local function trySinisterClaim(model, prompt, icon)
+    if not sinisterEnabled or not model or not model.Parent then
+        return
+    end
+
+    if registeredPumpkins[model] and registeredPumpkins[model].Claimed then
+        return
+    end
+
+    if not prompt or not prompt.Parent or not prompt.Enabled then
+        return
+    end
+
+    if not icon or not icon.Parent then
+        return
+    end
+
+    local matched, itemName = isSelectedGearImage(icon.Image)
+    if not matched then
+        return
+    end
+
+    local record = registeredPumpkins[model]
+    if record then
+        record.Claimed = true
+    else
+        registeredPumpkins[model] = {Claimed = true}
+    end
+
+    activatePrompt(prompt)
+end
+
+local function registerPumpkin(model)
+    if not model or not model:IsA("Model") or registeredPumpkins[model] then
+        return
+    end
+
+    local inner = model:FindFirstChild("Pumpkin")
+    if not inner then
+        return
+    end
+
+    local prompt = inner:FindFirstChild("ProximityPrompt", true)
+    local billboard = inner:FindFirstChild("BillboardGui", true)
+    local frame = billboard and billboard:FindFirstChild("Frame")
+    local innerFrame = frame and frame:FindFirstChild("Frame")
+    local icon = innerFrame and innerFrame:FindFirstChild("Icon")
+
+    if not prompt or not billboard or not icon or not icon:IsA("ImageLabel") then
+        return
+    end
+
+    registeredPumpkins[model] = {
+        Claimed = false,
+        Connections = {}
+    }
+
+    local record = registeredPumpkins[model]
+
+    table.insert(record.Connections, icon:GetPropertyChangedSignal("Image"):Connect(function()
+        trySinisterClaim(model, prompt, icon)
+    end))
+
+    table.insert(record.Connections, prompt:GetPropertyChangedSignal("Enabled"):Connect(function()
+        trySinisterClaim(model, prompt, icon)
+    end))
+
+    table.insert(record.Connections, billboard:GetPropertyChangedSignal("Enabled"):Connect(function()
+        trySinisterClaim(model, prompt, icon)
+    end))
+
+    task.defer(function()
+        trySinisterClaim(model, prompt, icon)
+    end)
+
+    table.insert(record.Connections, model.AncestryChanged:Connect(function(_, parent)
+        if parent then
+            return
+        end
+
+        for _, connection in ipairs(record.Connections) do
+            disconnect(connection)
+        end
+
+        registeredPumpkins[model] = nil
+    end))
+end
+
+local Plates = workspace:FindFirstChild("Plates")
+
+if Plates then
+    local function registerPlate(plate)
+        local existing = plate:FindFirstChild("Pumpkin")
+        if existing then
+            registerPumpkin(existing)
+        end
+
+        keepConnection(plate.ChildAdded:Connect(function(child)
+            if child.Name == "Pumpkin" then
+                task.defer(registerPumpkin, child)
+            end
+        end))
+    end
+
+    for _, plate in ipairs(Plates:GetChildren()) do
+        registerPlate(plate)
+    end
+
+    keepConnection(Plates.ChildAdded:Connect(registerPlate))
+end
+
+Misc:Toggle({
+    Name = "Auto Sinister",
+    Default = false,
+    Flag = "HH_AutoSinister",
+    Callback = function(enabled)
+        sinisterEnabled = enabled
+
+        if enabled and Plates then
+            for _, plate in ipairs(Plates:GetChildren()) do
+                local model = plate:FindFirstChild("Pumpkin")
+                if model then
+                    registerPumpkin(model)
+
+                    local inner = model:FindFirstChild("Pumpkin")
+                    local prompt = inner and inner:FindFirstChild("ProximityPrompt", true)
+                    local billboard = inner and inner:FindFirstChild("BillboardGui", true)
+                    local frame = billboard and billboard:FindFirstChild("Frame")
+                    local innerFrame = frame and frame:FindFirstChild("Frame")
+                    local icon = innerFrame and innerFrame:FindFirstChild("Icon")
+
+                    if prompt and icon then
+                        trySinisterClaim(model, prompt, icon)
+                    end
+                end
+            end
+        end
+    end
+})
+
+Misc:Dropdown({
+    Name = "Sinister Loot",
+    Options = getGearOptions,
+    MultiSelect = true,
+    Search = true,
+    AutoUpdate = true,
+    Interval = 5,
+    Flag = "HH_SinisterLoot",
+    Callback = function(selection)
+        table.clear(selectedGears)
+
+        if type(selection) == "table" then
+            for _, name in ipairs(selection) do
+                selectedGears[name] = true
+            end
+        end
+    end
+})
+
+local fullbrightEnabled = false
+local fullbrightSnapshot
+local fullbrightConnection
+
+local function applyFullbright()
+    Lighting.Ambient = Color3.fromRGB(170, 170, 170)
+    Lighting.OutdoorAmbient = Color3.fromRGB(170, 170, 170)
+    Lighting.Brightness = 2
+    Lighting.GlobalShadows = false
+end
+
+local function setFullbright(enabled)
+    fullbrightEnabled = enabled
+    disconnect(fullbrightConnection)
+    fullbrightConnection = nil
+
+    if enabled then
+        fullbrightSnapshot = {
+            Ambient = Lighting.Ambient,
+            OutdoorAmbient = Lighting.OutdoorAmbient,
+            Brightness = Lighting.Brightness,
+            GlobalShadows = Lighting.GlobalShadows
+        }
+
+        applyFullbright()
+
+        fullbrightConnection = RunService.Heartbeat:Connect(function()
+            if fullbrightEnabled then
+                applyFullbright()
+            end
+        end)
+    else
+        if fullbrightSnapshot then
+            Lighting.Ambient = fullbrightSnapshot.Ambient
+            Lighting.OutdoorAmbient = fullbrightSnapshot.OutdoorAmbient
+            Lighting.Brightness = fullbrightSnapshot.Brightness
+            Lighting.GlobalShadows = fullbrightSnapshot.GlobalShadows
+        end
+
+        fullbrightSnapshot = nil
+    end
+end
+
+Visual:Toggle({
+    Name = "Fullbright",
+    Default = false,
+    Flag = "HH_Fullbright",
+    Callback = setFullbright
+})
+
+local fogEnabled = false
+local fogSnapshot
+local atmosphereSnapshots = {}
+local fogDescendantConnection
+
+local function disableAtmosphere(object)
+    if not object:IsA("Atmosphere") then
+        return
+    end
+
+    if not atmosphereSnapshots[object] then
+        atmosphereSnapshots[object] = {
+            Density = object.Density,
+            Haze = object.Haze,
+            Glare = object.Glare
+        }
+    end
+
+    object.Density = 0
+    object.Haze = 0
+    object.Glare = 0
+end
+
+local function setDeleteFog(enabled)
+    fogEnabled = enabled
+    disconnect(fogDescendantConnection)
+    fogDescendantConnection = nil
+
+    if enabled then
+        fogSnapshot = {
+            FogStart = Lighting.FogStart,
+            FogEnd = Lighting.FogEnd
+        }
+
+        table.clear(atmosphereSnapshots)
+
+        for _, object in ipairs(Lighting:GetDescendants()) do
+            disableAtmosphere(object)
+        end
+
+        Lighting.FogStart = 0
+        Lighting.FogEnd = 1000000
+
+        fogDescendantConnection = Lighting.DescendantAdded:Connect(function(object)
+            if fogEnabled then
+                disableAtmosphere(object)
+            end
+        end)
+    else
+        if fogSnapshot then
+            Lighting.FogStart = fogSnapshot.FogStart
+            Lighting.FogEnd = fogSnapshot.FogEnd
+        end
+
+        for object, values in pairs(atmosphereSnapshots) do
+            if object.Parent then
+                object.Density = values.Density
+                object.Haze = values.Haze
+                object.Glare = values.Glare
+            end
+        end
+
+        fogSnapshot = nil
+        table.clear(atmosphereSnapshots)
+    end
+end
+
+Visual:Toggle({
+    Name = "Delete Fog",
+    Default = false,
+    Flag = "HH_DeleteFog",
+    Callback = setDeleteFog
+})
+
+local playerEspEnabled = false
+local espAllPlayers = false
+local espTargets = {}
+local espHighlights = {}
+local playerConnections = {}
+local playerDropdown
+
+local sheriffEspEnabled = false
+local murderEspEnabled = false
+
+local function removeHighlight(player)
+    local highlight = espHighlights[player]
+    if highlight then
+        pcall(function()
+            highlight:Destroy()
+        end)
+        espHighlights[player] = nil
+    end
+end
+
+local function hasRoleValue(player, role)
+    local character = player.Character
+    local containers = {player}
+
+    if character then
+        table.insert(containers, character)
+    end
+
+    local backpack = player:FindFirstChildOfClass("Backpack")
+    if backpack then
+        table.insert(containers, backpack)
+    end
+
+    local roleNames
+    if role == "Murder" then
+        roleNames = {
+            ismurderer = true,
+            murder = true,
+            murderer = true,
+            knife = true,
+            dagger = true
+        }
+    else
+        roleNames = {
+            issheriff = true,
+            sheriff = true,
+            revolver = true,
+            sheriffgun = true
+        }
+    end
+
+    for _, container in ipairs(containers) do
+        if container then
+            for attribute, value in pairs(container:GetAttributes()) do
+                local key = tostring(attribute):lower():gsub("[%s_%-]", "")
+                local text = tostring(value):lower()
+
+                if role == "Murder" and (key == "role" or key == "team" or key == "class") and
+                    (text:find("murder", 1, true) or text:find("killer", 1, true)) then
+                    return true
+                end
+
+                if role == "Sheriff" and (key == "role" or key == "team" or key == "class") and
+                    text:find("sheriff", 1, true) then
+                    return true
+                end
+
+                if roleNames[key] and value == true then
+                    return true
+                end
+            end
+
+            for _, object in ipairs(container:GetDescendants()) do
+                local key = object.Name:lower():gsub("[%s_%-]", "")
+
+                if object:IsA("BoolValue") and roleNames[key] and object.Value then
+                    return true
+                end
+
+                if object:IsA("StringValue") or object:IsA("ObjectValue") then
+                    local value = tostring(object.Value):lower()
+                    if role == "Murder" and
+                        (key == "role" or key == "team" or key == "class") and
+                        (value:find("murder", 1, true) or value:find("killer", 1, true)) then
+                        return true
+                    end
+                    if role == "Sheriff" and
+                        (key == "role" or key == "team" or key == "class") and
+                        value:find("sheriff", 1, true) then
+                        return true
+                    end
+                end
+
+                if object:IsA("Tool") then
+                    local name = object.Name:lower():gsub("[%s_%-]", "")
+                    if role == "Murder" and
+                        (name:find("murder", 1, true) or name:find("knife", 1, true) or name:find("dagger", 1, true)) then
+                        return true
+                    end
+                    if role == "Sheriff" and
+                        (name:find("sheriff", 1, true) or name:find("revolver", 1, true)) then
+                        return true
+                    end
+                end
+            end
+        end
+    end
+
+    local team = player.Team
+    if team then
+        local name = team.Name:lower()
+        if role == "Murder" and (name:find("murder", 1, true) or name:find("killer", 1, true)) then
+            return true
+        end
+        if role == "Sheriff" and name:find("sheriff", 1, true) then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function getHighlightColor(player)
+    if murderEspEnabled and hasRoleValue(player, "Murder") then
+        return Color3.fromRGB(255, 65, 75)
+    end
+
+    if sheriffEspEnabled and hasRoleValue(player, "Sheriff") then
+        return Color3.fromRGB(255, 165, 55)
+    end
+
+    if playerEspEnabled and (espAllPlayers or espTargets[player.UserId]) then
+        return Color3.fromRGB(90, 175, 255)
+    end
+
+    return nil
+end
+
+local function updatePlayerESP(player)
+    if player == LocalPlayer then
+        removeHighlight(player)
+        return
+    end
+
+    local color = getHighlightColor(player)
+    local character = player.Character
+
+    if not color or not character then
+        removeHighlight(player)
+        return
+    end
+
+    local highlight = espHighlights[player]
+
+    if not highlight or highlight.Parent ~= character then
+        removeHighlight(player)
+
+        highlight = Instance.new("Highlight")
+        highlight.Name = "HH_PlayerESP"
+        highlight.Adornee = character
+        highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        highlight.FillTransparency = 1
+        highlight.OutlineTransparency = 0.05
+        highlight.Parent = character
+
+        espHighlights[player] = highlight
+    end
+
+    highlight.OutlineColor = color
+end
+
+local function updateAllESP()
+    for _, player in ipairs(Players:GetPlayers()) do
+        updatePlayerESP(player)
+    end
+end
+
+local function getPlayerOptions()
+    local options = {"All", {Divider = true}}
+    local players = Players:GetPlayers()
+
+    table.sort(players, function(a, b)
+        return a.Name:lower() < b.Name:lower()
+    end)
+
+    for _, player in ipairs(players) do
+        if player ~= LocalPlayer then
+            table.insert(options, player.Name)
+        end
+    end
+
+    return options
+end
+
+local function applyPlayerSelection(selection)
+    selection = type(selection) == "table" and selection or {}
+
+    local all = false
+    local chosen = {}
+
+    for _, name in ipairs(selection) do
+        if name == "All" then
+            all = true
+        else
+            chosen[name] = true
+        end
+    end
+
+    if all and next(chosen) == nil then
+        espAllPlayers = true
+        table.clear(espTargets)
+    else
+        espAllPlayers = false
+        table.clear(espTargets)
+
+        for _, player in ipairs(Players:GetPlayers()) do
+            if chosen[player.Name] then
+                espTargets[player.UserId] = true
+            end
+        end
+    end
+
+    playerEspEnabled = espAllPlayers or next(espTargets) ~= nil
+    updateAllESP()
+
+    if all and next(chosen) ~= nil and playerDropdown then
+        local names = {}
+
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and chosen[player.Name] then
+                table.insert(names, player.Name)
+            end
+        end
+
+        playerDropdown:Set(names)
+    end
+end
+
+playerDropdown = Visual:Dropdown({
+    Name = "ESP Players",
+    Options = getPlayerOptions,
+    MultiSelect = true,
+    Search = true,
+    AutoUpdate = true,
+    Interval = 3,
+    Flag = "HH_ESPPlayers",
+    Callback = applyPlayerSelection
+})
+
+Visual:Toggle({
+    Name = "ESP Sheriff",
+    Default = false,
+    Flag = "HH_ESPSheriff",
+    Callback = function(enabled)
+        sheriffEspEnabled = enabled
+        updateAllESP()
+    end
+})
+
+Visual:Toggle({
+    Name = "ESP Murder",
+    Default = false,
+    Flag = "HH_ESPMurder",
+    Callback = function(enabled)
+        murderEspEnabled = enabled
+        updateAllESP()
+    end
+})
+
+local function watchPlayer(player)
+    if playerConnections[player] then
+        disconnect(playerConnections[player])
+    end
+
+    playerConnections[player] = player.CharacterAdded:Connect(function(character)
+        task.wait(0.2)
+        if character.Parent then
+            updatePlayerESP(player)
+        end
+    end)
+
+    updatePlayerESP(player)
+end
+
+keepConnection(Players.PlayerAdded:Connect(function(player)
+    watchPlayer(player)
+end))
+
+keepConnection(Players.PlayerRemoving:Connect(function(player)
+    removeHighlight(player)
+    disconnect(playerConnections[player])
+    playerConnections[player] = nil
+    espTargets[player.UserId] = nil
+end))
+
+for _, player in ipairs(Players:GetPlayers()) do
+    if player ~= LocalPlayer then
+        watchPlayer(player)
+    end
+end
+
+local roleScanEnabled = false
+local roleScanConnection = RunService.Heartbeat:Connect(function()
+    if sheriffEspEnabled or murderEspEnabled then
+        updateAllESP()
+    end
+end)
+
+keepConnection(roleScanConnection)
+
+JL:OnUnload(function()
+    stopAutoFish()
+    sinisterEnabled = false
+    setFullbright(false)
+    setDeleteFog(false)
+
+    for model, record in pairs(registeredPumpkins) do
+        for _, connection in ipairs(record.Connections or {}) do
+            disconnect(connection)
+        end
+        registeredPumpkins[model] = nil
+    end
+
+    for player in pairs(espHighlights) do
+        removeHighlight(player)
+    end
+
+    for player, connection in pairs(playerConnections) do
+        disconnect(connection)
+        playerConnections[player] = nil
+    end
+
+    for _, connection in ipairs(Connections) do
+        disconnect(connection)
+    end
+end)
