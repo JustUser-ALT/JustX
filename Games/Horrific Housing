@@ -249,7 +249,8 @@ local function trySinisterClaim(model, prompt, icon)
         return
     end
 
-    if registeredPumpkins[model] and registeredPumpkins[model].Claimed then
+    local record = registeredPumpkins[model]
+    if not record or record.Claimed or record.Busy then
         return
     end
 
@@ -266,14 +267,13 @@ local function trySinisterClaim(model, prompt, icon)
         return
     end
 
-    local record = registeredPumpkins[model]
-    if record then
-        record.Claimed = true
-    else
-        registeredPumpkins[model] = {Claimed = true}
-    end
+    record.Busy = true
+    local activated = activatePrompt(prompt)
+    record.Busy = false
 
-    activatePrompt(prompt)
+    if activated then
+        record.Claimed = true
+    end
 end
 
 local function registerPumpkin(model)
@@ -828,14 +828,14 @@ for _, player in ipairs(Players:GetPlayers()) do
     end
 end
 
-local roleScanEnabled = false
-local roleScanConnection = RunService.Heartbeat:Connect(function()
-    if sheriffEspEnabled or murderEspEnabled then
-        updateAllESP()
+JL:Spawn(function()
+    while JL:IsAlive() do
+        if sheriffEspEnabled or murderEspEnabled then
+            updateAllESP()
+        end
+        task.wait(0.5)
     end
 end)
-
-keepConnection(roleScanConnection)
 
 JL:OnUnload(function()
     stopAutoFish()
