@@ -168,25 +168,28 @@ local GearTable
 local GearList = {}
 local GearImageMap = {}
 
-pcall(function()
-    GearTable = require(ReplicatedStorage:WaitForChild("Gears"):WaitForChild("GearTable"))
-    local gears = GearTable:getGears(true)
+task.spawn(function()
+    pcall(function()
+        local gearModule = ReplicatedStorage:WaitForChild("Gears"):WaitForChild("GearTable")
+        GearTable = require(gearModule)
+        local gears = GearTable:getGears(true)
 
-    for name, gear in pairs(gears) do
-        if name ~= "UltimateWeapon" and gear and gear.TextureId then
-            local image = tostring(gear.TextureId)
-            if image ~= "" then
-                table.insert(GearList, tostring(name))
-                local key = image:lower():match("%d+") or image:lower()
-                GearImageMap[key] = GearImageMap[key] or {}
-                table.insert(GearImageMap[key], tostring(name))
+        for name, gear in pairs(gears) do
+            if name ~= "UltimateWeapon" and gear and gear.TextureId then
+                local image = tostring(gear.TextureId)
+                if image ~= "" then
+                    table.insert(GearList, tostring(name))
+                    local key = image:lower():match("%d+") or image:lower()
+                    GearImageMap[key] = GearImageMap[key] or {}
+                    table.insert(GearImageMap[key], tostring(name))
+                end
             end
         end
-    end
-end)
 
-table.sort(GearList, function(a, b)
-    return a:lower() < b:lower()
+        table.sort(GearList, function(a, b)
+            return a:lower() < b:lower()
+        end)
+    end)
 end)
 
 local selectedGears = {}
