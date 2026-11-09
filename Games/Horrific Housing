@@ -220,31 +220,38 @@ local function isSelectedGearImage(image)
     return false
 end
 
-local function activatePrompt(prompt)
+local function activatePrompt(prompt, model, icon)
     if not prompt or not prompt.Parent or not prompt.Enabled then
         return false
     end
+
+    local imageBefore = icon and icon.Image
 
     pcall(function()
         prompt.HoldDuration = 0
     end)
 
     if type(fireproximityprompt) == "function" then
-        local ok = pcall(function()
+        local fired = pcall(function()
             fireproximityprompt(prompt)
         end)
-        if ok then
-            return true
+
+        if fired then
+            task.wait(0.15)
+
+            if not prompt.Parent or not prompt.Enabled
+                or not model.Parent
+                or (icon and icon.Parent and icon.Image ~= imageBefore) then
+                return true
+            end
         end
     end
 
-    local ok = pcall(function()
+    return pcall(function()
         prompt:InputHoldBegin()
         task.wait(0.05)
         prompt:InputHoldEnd()
     end)
-
-    return ok
 end
 
 local function trySinisterClaim(model, prompt, icon)
@@ -253,7 +260,12 @@ local function trySinisterClaim(model, prompt, icon)
     end
 
     local record = registeredPumpkins[model]
-    if not record or record.Claimed or record.Busy then
+    if not record or record.Busy then
+        return
+    end
+
+    local now = os.clock()
+    if record.LastAttemptAt and now - record.LastAttemptAt < 0.8 then
         return
     end
 
@@ -271,12 +283,9 @@ local function trySinisterClaim(model, prompt, icon)
     end
 
     record.Busy = true
-    local activated = activatePrompt(prompt)
+    record.LastAttemptAt = now
+    activatePrompt(prompt, model, icon)
     record.Busy = false
-
-    if activated then
-        record.Claimed = true
-    end
 end
 
 local function registerPumpkin(model)
@@ -300,7 +309,7 @@ local function registerPumpkin(model)
     end
 
     registeredPumpkins[model] = {
-        Claimed = false,
+        LastAttemptAt = 0,
         Connections = {}
     }
 
