@@ -421,9 +421,11 @@ local fullbrightSnapshot
 local fullbrightConnection
 
 local function applyFullbright()
+    Lighting.Ambient = Color3.fromRGB(128, 128, 128)
     Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
     Lighting.Brightness = 2
     Lighting.ClockTime = 14
+    Lighting.FogStart = fogEnabled and 0 or Lighting.FogStart
     Lighting.FogEnd = fogEnabled and 1000000 or 100000
     Lighting.GlobalShadows = false
 end
@@ -519,6 +521,21 @@ local function setDeleteFog(enabled)
         fogDescendantConnection = Lighting.DescendantAdded:Connect(function(object)
             if fogEnabled then
                 disableAtmosphere(object)
+            end
+        end)
+
+        task.spawn(function()
+            while fogEnabled and JL:IsAlive() do
+                Lighting.FogStart = 0
+                Lighting.FogEnd = 1000000
+
+                for _, object in ipairs(Lighting:GetDescendants()) do
+                    if object:IsA("Atmosphere") then
+                        disableAtmosphere(object)
+                    end
+                end
+
+                task.wait(0.25)
             end
         end)
     else
@@ -821,12 +838,16 @@ local treasureMapObjects = {}
 local treasureMapConnections = {}
 
 local function isTreasureMapObject(object)
-    if not object or not object.Parent then
+    if not object or not object.Parent or object.Name ~= "MapModel" then
         return false
     end
 
-    return object:FindFirstChild("ProximityPrompt", true) ~= nil
-        and object:FindFirstChild("rotationModule", true) ~= nil
+    if not (object:IsA("BasePart") or object:IsA("Model")) then
+        return false
+    end
+
+    return object:FindFirstChild("ProximityPrompt") ~= nil
+        and object:FindFirstChild("rotationModule") ~= nil
 end
 
 local function removeTreasureMapESP(object)
@@ -911,8 +932,10 @@ local function updateTreasureMapESP()
 
     if treasureMapEspEnabled then
         for _, plate in ipairs(Plates:GetChildren()) do
-            for _, object in ipairs(plate:GetChildren()) do
-                addTreasureMapESP(object)
+            for _, object in ipairs(plate:GetDescendants()) do
+                if object.Name == "MapModel" then
+                    addTreasureMapESP(object)
+                end
             end
         end
     else
@@ -929,12 +952,14 @@ end
 
 if Plates then
     local function watchTreasurePlate(plate)
-        table.insert(treasureMapConnections, plate.ChildAdded:Connect(function(object)
-            task.defer(function()
-                if treasureMapEspEnabled then
-                    addTreasureMapESP(object)
-                end
-            end)
+        table.insert(treasureMapConnections, plate.DescendantAdded:Connect(function(object)
+            if object.Name == "MapModel" then
+                task.defer(function()
+                    if treasureMapEspEnabled then
+                        addTreasureMapESP(object)
+                    end
+                end)
+            end
         end))
     end
 
@@ -945,8 +970,10 @@ if Plates then
     table.insert(treasureMapConnections, Plates.ChildAdded:Connect(function(plate)
         watchTreasurePlate(plate)
         if treasureMapEspEnabled then
-            for _, object in ipairs(plate:GetChildren()) do
-                addTreasureMapESP(object)
+            for _, object in ipairs(plate:GetDescendants()) do
+                if object.Name == "MapModel" then
+                    addTreasureMapESP(object)
+                end
             end
         end
     end))
