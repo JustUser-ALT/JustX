@@ -804,6 +804,152 @@ Visual:Toggle({
     end
 })
 
+local treasureMapEspEnabled = false
+local treasureMapObjects = {}
+local treasureMapConnections = {}
+
+local function isTreasureMapObject(object)
+    if not object or not object.Parent then
+        return false
+    end
+
+    return object:FindFirstChild("ProximityPrompt", true) ~= nil
+        and object:FindFirstChild("rotationModule", true) ~= nil
+end
+
+local function removeTreasureMapESP(object)
+    local record = treasureMapObjects[object]
+    if not record then
+        return
+    end
+
+    if record.Highlight then
+        record.Highlight:Destroy()
+    end
+
+    if record.Billboard then
+        record.Billboard:Destroy()
+    end
+
+    treasureMapObjects[object] = nil
+end
+
+local function addTreasureMapESP(object)
+    if not treasureMapEspEnabled or treasureMapObjects[object] then
+        return
+    end
+
+    if not isTreasureMapObject(object) then
+        return
+    end
+
+    local adornee = object:IsA("BasePart") and object or
+        (object:IsA("Model") and (object.PrimaryPart or object:FindFirstChildWhichIsA("BasePart", true)))
+
+    if not adornee then
+        return
+    end
+
+    local highlight = Instance.new("Highlight")
+    highlight.Name = "HH_TreasureMapESP"
+    highlight.Adornee = object
+    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    highlight.FillColor = Color3.fromRGB(255, 190, 65)
+    highlight.FillTransparency = 0.82
+    highlight.OutlineColor = Color3.fromRGB(255, 205, 85)
+    highlight.OutlineTransparency = 0
+    highlight.Parent = object
+
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "HH_TreasureMapLabel"
+    billboard.Adornee = adornee
+    billboard.Size = UDim2.fromOffset(112, 22)
+    billboard.StudsOffset = Vector3.new(0, 2.4, 0)
+    billboard.AlwaysOnTop = true
+    billboard.MaxDistance = 1500
+    billboard.Parent = object
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.fromScale(1, 1)
+    label.BackgroundTransparency = 1
+    label.Text = "TREASURE MAP"
+    label.TextColor3 = Color3.fromRGB(255, 210, 105)
+    label.TextStrokeColor3 = Color3.fromRGB(25, 18, 8)
+    label.TextStrokeTransparency = 0.15
+    label.Font = Enum.Font.GothamBold
+    label.TextSize = 12
+    label.Parent = billboard
+
+    treasureMapObjects[object] = {
+        Highlight = highlight,
+        Billboard = billboard
+    }
+
+    table.insert(treasureMapConnections, object.AncestryChanged:Connect(function(_, parent)
+        if not parent then
+            removeTreasureMapESP(object)
+        end
+    end))
+end
+
+local function updateTreasureMapESP()
+    if not Plates then
+        return
+    end
+
+    if treasureMapEspEnabled then
+        for _, plate in ipairs(Plates:GetChildren()) do
+            for _, object in ipairs(plate:GetChildren()) do
+                addTreasureMapESP(object)
+            end
+        end
+    else
+        local objects = {}
+        for object in pairs(treasureMapObjects) do
+            table.insert(objects, object)
+        end
+
+        for _, object in ipairs(objects) do
+            removeTreasureMapESP(object)
+        end
+    end
+end
+
+if Plates then
+    local function watchTreasurePlate(plate)
+        table.insert(treasureMapConnections, plate.ChildAdded:Connect(function(object)
+            task.defer(function()
+                if treasureMapEspEnabled then
+                    addTreasureMapESP(object)
+                end
+            end)
+        end))
+    end
+
+    for _, plate in ipairs(Plates:GetChildren()) do
+        watchTreasurePlate(plate)
+    end
+
+    table.insert(treasureMapConnections, Plates.ChildAdded:Connect(function(plate)
+        watchTreasurePlate(plate)
+        if treasureMapEspEnabled then
+            for _, object in ipairs(plate:GetChildren()) do
+                addTreasureMapESP(object)
+            end
+        end
+    end))
+end
+
+Visual:Toggle({
+    Name = "Treasure Map ESP",
+    Default = false,
+    Flag = "HH_TreasureMapESP",
+    Callback = function(enabled)
+        treasureMapEspEnabled = enabled
+        updateTreasureMapESP()
+    end
+})
+
 local function watchPlayer(player)
     if playerConnections[player] then
         disconnect(playerConnections[player])
@@ -848,6 +994,11 @@ end)
 JL:OnUnload(function()
     stopAutoFish()
     sinisterEnabled = false
+    treasureMapEspEnabled = false
+    updateTreasureMapESP()
+    for _, connection in ipairs(treasureMapConnections) do
+        disconnect(connection)
+    end
     setFullbright(false)
     setDeleteFog(false)
 
