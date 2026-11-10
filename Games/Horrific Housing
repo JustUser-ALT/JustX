@@ -476,6 +476,47 @@ local function setFullbright(enabled)
     end
 end
 
+local mysteryGuiHidden = false
+local mysteryGuiStates = {}
+
+local function hideMysteryGui(gui)
+    if not mysteryGuiHidden or gui.Name ~= "MysteryGui" or not gui:IsA("ScreenGui") then
+        return
+    end
+
+    if mysteryGuiStates[gui] == nil then
+        mysteryGuiStates[gui] = gui.Enabled
+    end
+
+    gui.Enabled = false
+end
+
+keepConnection(PlayerGui.ChildAdded:Connect(hideMysteryGui))
+
+local function setHideRoleUI(enabled)
+    mysteryGuiHidden = enabled
+
+    if enabled then
+        for _, gui in ipairs(PlayerGui:GetChildren()) do
+            hideMysteryGui(gui)
+        end
+    else
+        for gui, wasEnabled in pairs(mysteryGuiStates) do
+            if gui.Parent then
+                gui.Enabled = wasEnabled
+            end
+            mysteryGuiStates[gui] = nil
+        end
+    end
+end
+
+Visual:Toggle({
+    Name = "Hide Role UI",
+    Default = false,
+    Flag = "HH_HideRoleUI",
+    Callback = setHideRoleUI
+})
+
 Visual:Toggle({
     Name = "Fullbright",
     Default = false,
