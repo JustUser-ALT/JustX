@@ -353,9 +353,16 @@ if Plates then
             registerPumpkin(existing)
         end
 
-        keepConnection(plate.ChildAdded:Connect(function(child)
-            if child.Name == "Pumpkin" then
-                task.defer(registerPumpkin, child)
+        keepConnection(plate.DescendantAdded:Connect(function(object)
+            local candidate = object
+            while candidate and candidate.Parent ~= plate do
+                candidate = candidate.Parent
+            end
+
+            if candidate and candidate.Parent == plate
+                and candidate.Name == "Pumpkin"
+                and candidate:IsA("Model") then
+                task.delay(0.1, registerPumpkin, candidate)
             end
         end))
     end
@@ -934,7 +941,11 @@ local function updateTreasureMapESP()
         for _, plate in ipairs(Plates:GetChildren()) do
             for _, object in ipairs(plate:GetDescendants()) do
                 if object.Name == "MapModel" then
-                    addTreasureMapESP(object)
+                    task.delay(0.1, function()
+                        if treasureMapEspEnabled then
+                            addTreasureMapESP(object)
+                        end
+                    end)
                 end
             end
         end
@@ -953,13 +964,19 @@ end
 if Plates then
     local function watchTreasurePlate(plate)
         table.insert(treasureMapConnections, plate.DescendantAdded:Connect(function(object)
-            if object.Name == "MapModel" then
-                task.defer(function()
-                    if treasureMapEspEnabled then
-                        addTreasureMapESP(object)
-                    end
-                end)
+            local candidate = object.Name == "MapModel"
+                and object
+                or object:FindFirstAncestor("MapModel")
+
+            if not candidate then
+                return
             end
+
+            task.delay(0.1, function()
+                if treasureMapEspEnabled and candidate.Parent then
+                    addTreasureMapESP(candidate)
+                end
+            end)
         end))
     end
 
