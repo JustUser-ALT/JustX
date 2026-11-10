@@ -167,6 +167,7 @@ Misc:Toggle({
 local GearTable
 local GearList = {}
 local GearImageMap = {}
+local gearListReady = false
 
 task.spawn(function()
     pcall(function()
@@ -190,6 +191,8 @@ task.spawn(function()
             return a:lower() < b:lower()
         end)
     end)
+
+    gearListReady = true
 end)
 
 local selectedGears = {}
@@ -403,6 +406,10 @@ Misc:Toggle({
     end
 })
 
+while not gearListReady and JL:IsAlive() do
+    task.wait()
+end
+
 Misc:Dropdown({
     Name = "Sinister Loot",
     Options = getGearOptions,
@@ -415,8 +422,11 @@ Misc:Dropdown({
         table.clear(selectedGears)
 
         if type(selection) == "table" then
-            for _, name in ipairs(selection) do
-                selectedGears[name] = true
+            for key, value in pairs(selection) do
+                local name = type(key) == "number" and value or (value and key or nil)
+                if type(name) == "string" then
+                    selectedGears[name] = true
+                end
             end
         end
     end
