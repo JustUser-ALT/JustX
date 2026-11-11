@@ -534,6 +534,44 @@ Visual:Toggle({
     Callback = setFullbright
 })
 
+local maxZoomEnabled = false
+local maxZoomValue = 128
+local originalMaxZoom = LocalPlayer.CameraMaxZoomDistance
+
+local function applyMaxZoom()
+    if maxZoomEnabled then
+        LocalPlayer.CameraMaxZoomDistance = maxZoomValue
+    end
+end
+
+Visual:Toggle({
+    Name = "Max Zoom",
+    Default = false,
+    Flag = "HH_MaxZoom",
+    Callback = function(enabled)
+        maxZoomEnabled = enabled
+        if enabled then
+            applyMaxZoom()
+        else
+            LocalPlayer.CameraMaxZoomDistance = originalMaxZoom
+        end
+    end
+})
+
+Visual:Slider({
+    Name = "Max Zoom Distance",
+    Min = 10,
+    Max = 1000,
+    Step = 1,
+    Default = 128,
+    Suffix = " studs",
+    Flag = "HH_MaxZoomDistance",
+    Callback = function(value)
+        maxZoomValue = value
+        applyMaxZoom()
+    end
+})
+
 local fogSnapshot
 local atmosphereSnapshots = {}
 local fogDescendantConnection
@@ -1099,6 +1137,8 @@ JL:Spawn(function()
 end)
 
 JL:OnUnload(function()
+    maxZoomEnabled = false
+    LocalPlayer.CameraMaxZoomDistance = originalMaxZoom
     stopAutoFish()
     sinisterEnabled = false
     treasureMapEspEnabled = false
