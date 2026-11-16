@@ -1448,6 +1448,7 @@ JL:Spawn(function()
 end)
 
 JL:OnUnload(function()
+    stopAutoFreezeRay()
     maxZoomEnabled = false
     LocalPlayer.CameraMaxZoomDistance = originalMaxZoom
     stopAutoFish()
