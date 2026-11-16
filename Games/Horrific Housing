@@ -164,6 +164,317 @@ Misc:Toggle({
     Callback = setAutoFish
 })
 
+-- Auto Freeze Ray
+local freezeEnabled = false
+local freezeGui
+local freezeButton
+local freezeHolder
+local freezeBeam
+local freezeTargetAttachment
+local freezeConnection
+local freezePriorityPlayer
+local freezeLastShot = 0
+
+local FREEZE_CONFIG = {
+    FOV = 250,
+    MaxDistance = 300,
+    UpdateRate = 0.05,
+    Cooldown = 1.5,
+    BeamColor = Color3.fromRGB(50, 255, 110)
+}
+
+local function getFreezeTool()
+    local character = LocalPlayer.Character
+    return character and character:FindFirstChild("Freeze Ray")
+end
+
+local function getFreezeAttachment()
+    local tool = getFreezeTool()
+    local handle = tool and tool:FindFirstChild("Handle")
+    return handle and handle:FindFirstChild("Attachment")
+end
+
+local function getFreezeRoot(player)
+    local character = player and player.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+
+    if humanoid and humanoid.Health > 0 and root then
+        return root
+    end
+end
+
+local function evaluateFreezeTarget(player)
+    if player == LocalPlayer then
+        return nil
+    end
+
+    local root = getFreezeRoot(player)
+    local attachment = getFreezeAttachment()
+    if not root or not attachment then
+        return nil
+    end
+
+    local distance = (root.Position - attachment.WorldPosition).Magnitude
+    if distance > FREEZE_CONFIG.MaxDistance then
+        return nil
+    end
+
+    local camera = workspace.CurrentCamera
+    if not camera then
+        return nil
+    end
+
+    local point, visible = camera:WorldToViewportPoint(root.Position)
+    if not visible then
+        return nil
+    end
+
+    local center = camera.ViewportSize / 2
+    local screenDistance = (Vector2.new(point.X, point.Y) - center).Magnitude
+    if screenDistance > FREEZE_CONFIG.FOV then
+        return nil
+    end
+
+    return {
+        Player = player,
+        Part = root,
+        ScreenDistance = screenDistance,
+        Distance = distance
+    }
+end
+
+local function getFreezeTarget()
+    if freezePriorityPlayer then
+        local preferred = evaluateFreezeTarget(freezePriorityPlayer)
+        if preferred then
+            return preferred
+        end
+    end
+
+    local best
+    for _, player in ipairs(Players:GetPlayers()) do
+        local result = evaluateFreezeTarget(player)
+        if result and (not best or result.ScreenDistance < best.ScreenDistance) then
+            best = result
+        end
+    end
+
+    return best
+end
+
+local function createFreezeButton()
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "HH_AutoFreezeRay"
+    gui.ResetOnSpawn = false
+    gui.IgnoreGuiInset = true
+    gui.DisplayOrder = 25
+    gui.Parent = PlayerGui
+
+    local button = Instance.new("ImageButton")
+    button.Name = "FreezeButton"
+    button.Size = UDim2.fromOffset(62, 62)
+    button.Position = UDim2.new(1, -88, 0.58, 0)
+    button.AnchorPoint = Vector2.zero
+    button.BackgroundColor3 = Color3.fromRGB(24, 75, 49)
+    button.BackgroundTransparency = 0.08
+    button.BorderSizePixel = 0
+    button.Image = ""
+    button.AutoButtonColor = false
+    button.Active = true
+    button.Modal = false
+    button.Parent = gui
+
+    local round = Instance.new("UICorner")
+    round.CornerRadius = UDim.new(1, 0)
+    round.Parent = button
+
+    local outline = Instance.new("UIStroke")
+    outline.Color = Color3.fromRGB(75, 220, 125)
+    outline.Thickness = 2
+    outline.Transparency = 0.08
+    outline.Parent = button
+
+    local ring = Instance.new("Frame")
+    ring.Name = "Ring"
+    ring.Size = UDim2.fromOffset(34, 34)
+    ring.Position = UDim2.new(0.5, -17, 0.5, -17)
+    ring.BackgroundTransparency = 1
+    ring.BorderSizePixel = 0
+    ring.Parent = button
+
+    local ringRound = Instance.new("UICorner")
+    ringRound.CornerRadius = UDim.new(1, 0)
+    ringRound.Parent = ring
+
+    local ringStroke = Instance.new("UIStroke")
+    ringStroke.Color = Color3.fromRGB(160, 255, 190)
+    ringStroke.Thickness = 2
+    ringStroke.Transparency = 0.05
+    ringStroke.Parent = ring
+
+    local center = Instance.new("Frame")
+    center.Name = "Center"
+    center.Size = UDim2.fromOffset(8, 8)
+    center.Position = UDim2.new(0.5, -4, 0.5, -4)
+    center.BackgroundColor3 = Color3.fromRGB(210, 255, 220)
+    center.BorderSizePixel = 0
+    center.Parent = button
+
+    local centerRound = Instance.new("UICorner")
+    centerRound.CornerRadius = UDim.new(1, 0)
+    centerRound.Parent = center
+
+    return gui, button, outline
+end
+
+local function updateFreezeBeam(target)
+    local attachment = getFreezeAttachment()
+    if not attachment or not target or not freezeBeam or not freezeHolder then
+        if freezeBeam then
+            freezeBeam.Enabled = false
+        end
+        return
+    end
+
+    freezeBeam.Attachment0 = attachment
+    freezeHolder.Position = target.Part.Position
+    freezeBeam.Enabled = true
+end
+
+local function fireFreezeRay()
+    if not freezeEnabled then
+        return
+    end
+
+    local now = os.clock()
+    if now - freezeLastShot < FREEZE_CONFIG.Cooldown then
+        return
+    end
+
+    local tool = getFreezeTool()
+    local attachment = getFreezeAttachment()
+    local remote = tool and tool:FindFirstChild("fire")
+
+    if not tool or not attachment then
+        return
+    end
+
+    if not remote or not remote:IsA("RemoteEvent") then
+        return
+    end
+
+    local target = getFreezeTarget()
+    if not target or not target.Part or not target.Part.Parent then
+        return
+    end
+
+    local offset = target.Part.Position - attachment.WorldPosition
+    if offset.Magnitude <= 0 then
+        return
+    end
+
+    local direction = offset.Unit
+    local fired = pcall(function()
+        remote:FireServer(direction)
+    end)
+
+    if fired then
+        freezeLastShot = now
+        if freezeButton and freezeButton.Parent then
+            local outline = freezeButton:FindFirstChildOfClass("UIStroke")
+            if outline then
+                outline.Color = Color3.fromRGB(220, 255, 225)
+                task.delay(0.12, function()
+                    if freezeEnabled and outline.Parent then
+                        outline.Color = Color3.fromRGB(75, 220, 125)
+                    end
+                end)
+            end
+        end
+    end
+end
+
+local function stopAutoFreezeRay()
+    freezeEnabled = false
+    disconnect(freezeConnection)
+    freezeConnection = nil
+
+    if freezeGui then
+        freezeGui:Destroy()
+    end
+
+    if freezeHolder then
+        freezeHolder:Destroy()
+    end
+
+    freezeGui = nil
+    freezeButton = nil
+    freezeHolder = nil
+    freezeBeam = nil
+    freezeTargetAttachment = nil
+    freezePriorityPlayer = nil
+end
+
+local function setAutoFreezeRay(enabled)
+    stopAutoFreezeRay()
+    if not enabled then
+        return
+    end
+
+    freezeEnabled = true
+    freezeGui, freezeButton = createFreezeButton()
+    freezeButton.Activated:Connect(fireFreezeRay)
+
+    freezeHolder = Instance.new("Part")
+    freezeHolder.Name = "HH_FreezeRayTarget"
+    freezeHolder.Size = Vector3.new(0.1, 0.1, 0.1)
+    freezeHolder.Transparency = 1
+    freezeHolder.Anchored = true
+    freezeHolder.CanCollide = false
+    freezeHolder.CanTouch = false
+    freezeHolder.CanQuery = false
+    freezeHolder.Parent = workspace
+
+    freezeTargetAttachment = Instance.new("Attachment")
+    freezeTargetAttachment.Parent = freezeHolder
+
+    freezeBeam = Instance.new("Beam")
+    freezeBeam.Name = "HH_FreezeRayBeam"
+    freezeBeam.Attachment1 = freezeTargetAttachment
+    freezeBeam.Color = ColorSequence.new(FREEZE_CONFIG.BeamColor)
+    freezeBeam.Width0 = 0.055
+    freezeBeam.Width1 = 0.025
+    freezeBeam.FaceCamera = true
+    freezeBeam.LightEmission = 1
+    freezeBeam.Enabled = false
+    freezeBeam.Parent = freezeHolder
+
+    local elapsed = 0
+    freezeConnection = RunService.RenderStepped:Connect(function(dt)
+        if not freezeEnabled then
+            return
+        end
+
+        elapsed += dt
+        if elapsed < FREEZE_CONFIG.UpdateRate then
+            return
+        end
+        elapsed = 0
+
+        local target = getFreezeTarget()
+        updateFreezeBeam(target)
+    end)
+end
+
+Misc:Toggle({
+    Name = "Auto Freeze Ray",
+    Default = false,
+    Flag = "HH_AutoFreezeRay",
+    Callback = setAutoFreezeRay
+})
+
+
 local GearTable
 local GearList = {}
 local GearImageMap = {}
