@@ -414,6 +414,7 @@ local function stopAutoFreezeRay()
     freezeBeam = nil
     freezeTargetAttachment = nil
     freezePriorityPlayer = nil
+    freezeLastShot = 0
 end
 
 local function setAutoFreezeRay(enabled)
