@@ -175,8 +175,102 @@ local freezeConnection
 local freezePriorityPlayer
 local freezeLastShot = 0
 
+local PlayerDetection = {}
+
+local function getPlayerTeamName(player)
+    local team = player and player.Team
+    return team and team.Name or nil
+end
+
+function PlayerDetection.GetRoundState(player)
+    local teamName = getPlayerTeamName(player)
+    if teamName == "Playing" then
+        return "Playing"
+    end
+    if teamName == "Lobby" then
+        return "Lobby"
+    end
+    return teamName or "Unknown"
+end
+
+function PlayerDetection.IsAlive(player)
+    if not player or PlayerDetection.GetRoundState(player) ~= "Playing" then
+        return false
+    end
+
+    local character = player.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    return humanoid ~= nil and humanoid.Health > 0
+end
+
+function PlayerDetection.IsFrozen(player)
+    if not player then
+        return false
+    end
+
+    local containers = {player}
+    if player.Character then
+        table.insert(containers, player.Character)
+    end
+
+    for _, container in ipairs(containers) do
+        for attribute, value in pairs(container:GetAttributes()) do
+            local key = tostring(attribute):lower():gsub("[%s_%-]", "")
+            if key == "frozen" and value == true then
+                return true
+            end
+            if (key == "status" or key == "effect" or key == "statuseffect")
+                and tostring(value):lower():find("frozen", 1, true) then
+                return true
+            end
+        end
+
+        for _, object in ipairs(container:GetDescendants()) do
+            local name = object.Name:lower():gsub("[%s_%-]", "")
+            if name == "frozen" then
+                if object:IsA("BoolValue") then
+                    if object.Value then
+                        return true
+                    end
+                else
+                    return true
+                end
+            end
+
+            for attribute, value in pairs(object:GetAttributes()) do
+                local key = tostring(attribute):lower():gsub("[%s_%-]", "")
+                if key == "frozen" and value == true then
+                    return true
+                end
+                if (key == "status" or key == "effect" or key == "statuseffect")
+                    and tostring(value):lower():find("frozen", 1, true) then
+                    return true
+                end
+            end
+
+            if object:IsA("StringValue") then
+                local key = object.Name:lower():gsub("[%s_%-]", "")
+                if (key == "status" or key == "effect" or key == "statuseffect")
+                    and object.Value:lower():find("frozen", 1, true) then
+                    return true
+                end
+            end
+        end
+    end
+
+    return false
+end
+
+function PlayerDetection.GetState(player)
+    return {
+        Team = PlayerDetection.GetRoundState(player),
+        Alive = PlayerDetection.IsAlive(player),
+        Frozen = PlayerDetection.IsFrozen(player)
+    }
+end
+
 local FREEZE_CONFIG = {
-    FOV = 250,
+    MaxAimAngle = 42,
     MaxDistance = 300,
     UpdateRate = 0.05,
     Cooldown = 1.5,
@@ -205,41 +299,48 @@ local function getFreezeRoot(player)
 end
 
 local function evaluateFreezeTarget(player)
-    if player == LocalPlayer then
+    if player == LocalPlayer or not PlayerDetection.IsAlive(player)
+        or PlayerDetection.IsFrozen(player) then
         return nil
     end
 
     local root = getFreezeRoot(player)
     local attachment = getFreezeAttachment()
-    if not root or not attachment then
-        return nil
-    end
-
-    local distance = (root.Position - attachment.WorldPosition).Magnitude
-    if distance > FREEZE_CONFIG.MaxDistance then
-        return nil
-    end
-
     local camera = workspace.CurrentCamera
-    if not camera then
+    if not root or not attachment or not camera then
         return nil
     end
 
-    local point, visible = camera:WorldToViewportPoint(root.Position)
-    if not visible then
+    local offset = root.Position - attachment.WorldPosition
+    local distance = offset.Magnitude
+    if distance <= 0 or distance > FREEZE_CONFIG.MaxDistance then
         return nil
     end
 
-    local center = camera.ViewportSize / 2
-    local screenDistance = (Vector2.new(point.X, point.Y) - center).Magnitude
-    if screenDistance > FREEZE_CONFIG.FOV then
+    local cameraDirection = (root.Position - camera.CFrame.Position).Unit
+    local dot = math.clamp(camera.CFrame.LookVector:Dot(cameraDirection), -1, 1)
+    local angle = math.deg(math.acos(dot))
+    if angle > FREEZE_CONFIG.MaxAimAngle then
+        return nil
+    end
+
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = {
+        LocalPlayer.Character,
+        getFreezeTool()
+    }
+    params.IgnoreWater = true
+
+    local hit = workspace:Raycast(attachment.WorldPosition, offset, params)
+    if hit and not hit.Instance:IsDescendantOf(player.Character) then
         return nil
     end
 
     return {
         Player = player,
         Part = root,
-        ScreenDistance = screenDistance,
+        AimAngle = angle,
         Distance = distance
     }
 end
@@ -255,7 +356,9 @@ local function getFreezeTarget()
     local best
     for _, player in ipairs(Players:GetPlayers()) do
         local result = evaluateFreezeTarget(player)
-        if result and (not best or result.ScreenDistance < best.ScreenDistance) then
+        if result and (not best
+            or result.AimAngle < best.AimAngle
+            or (result.AimAngle == best.AimAngle and result.Distance < best.Distance)) then
             best = result
         end
     end
@@ -535,16 +638,41 @@ local function isSelectedGearImage(image)
     return false
 end
 
-local function activatePrompt(prompt, model, icon)
+local function getPumpkinComponents(model)
+    if not model or not model.Parent then
+        return nil
+    end
+
+    local prompt
+    local billboard
+    local icon
+
+    for _, object in ipairs(model:GetDescendants()) do
+        if object:IsA("ProximityPrompt") and object.Enabled and not prompt then
+            prompt = object
+        elseif object:IsA("BillboardGui") and not billboard then
+            billboard = object
+        elseif object.Name == "Icon"
+            and (object:IsA("ImageLabel") or object:IsA("ImageButton")) then
+            icon = object
+        end
+    end
+
+    if not prompt then
+        prompt = findNamedDescendant(model, "ProximityPrompt", "ProximityPrompt")
+    end
+
+    if not icon and billboard then
+        icon = findNamedDescendant(billboard, "Icon")
+    end
+
+    return prompt, billboard, icon
+end
+
+local function activatePrompt(prompt)
     if not prompt or not prompt.Parent or not prompt.Enabled then
         return false
     end
-
-    local imageBefore = icon and icon.Image
-
-    pcall(function()
-        prompt.HoldDuration = 0
-    end)
 
     if type(fireproximityprompt) == "function" then
         local fired = pcall(function()
@@ -552,24 +680,22 @@ local function activatePrompt(prompt, model, icon)
         end)
 
         if fired then
-            task.wait(0.15)
-
-            if not prompt.Parent or not prompt.Enabled
-                or not model.Parent
-                or (icon and icon.Parent and icon.Image ~= imageBefore) then
-                return true
-            end
+            task.wait(0.12)
         end
+    end
+
+    if not prompt.Parent or not prompt.Enabled then
+        return true
     end
 
     return pcall(function()
         prompt:InputHoldBegin()
-        task.wait(0.05)
+        task.wait(math.max(prompt.HoldDuration, 0.05))
         prompt:InputHoldEnd()
     end)
 end
 
-local function trySinisterClaim(model, prompt, icon)
+local function trySinisterClaim(model)
     if not sinisterEnabled or not model or not model.Parent then
         return
     end
@@ -579,27 +705,28 @@ local function trySinisterClaim(model, prompt, icon)
         return
     end
 
-    local now = os.clock()
-    if record.LastAttemptAt and now - record.LastAttemptAt < 0.8 then
+    local prompt, billboard, icon = getPumpkinComponents(model)
+    if not prompt or not icon or not icon.Parent or not prompt.Enabled then
         return
     end
 
-    if not prompt or not prompt.Parent or not prompt.Enabled then
+    if billboard and not billboard.Enabled then
         return
     end
 
-    if not icon or not icon.Parent then
-        return
-    end
-
-    local matched, itemName = isSelectedGearImage(icon.Image)
+    local matched = isSelectedGearImage(icon.Image)
     if not matched then
+        return
+    end
+
+    local now = os.clock()
+    if now - (record.LastAttemptAt or 0) < 0.45 then
         return
     end
 
     record.Busy = true
     record.LastAttemptAt = now
-    activatePrompt(prompt, model, icon)
+    activatePrompt(prompt)
     record.Busy = false
 end
 
@@ -608,43 +735,19 @@ local function registerPumpkin(model)
         return
     end
 
-    local inner = model:FindFirstChild("Pumpkin")
-    if not inner then
-        return
-    end
-
-    local prompt = inner:FindFirstChild("ProximityPrompt", true)
-    local billboard = inner:FindFirstChild("BillboardGui", true)
-    local frame = billboard and billboard:FindFirstChild("Frame")
-    local innerFrame = frame and frame:FindFirstChild("Frame")
-    local icon = innerFrame and innerFrame:FindFirstChild("Icon")
-
-    if not prompt or not billboard or not icon or not icon:IsA("ImageLabel") then
-        return
-    end
-
     registeredPumpkins[model] = {
         LastAttemptAt = 0,
+        Busy = false,
         Connections = {}
     }
 
     local record = registeredPumpkins[model]
 
-    table.insert(record.Connections, icon:GetPropertyChangedSignal("Image"):Connect(function()
-        trySinisterClaim(model, prompt, icon)
+    table.insert(record.Connections, model.DescendantAdded:Connect(function()
+        if sinisterEnabled then
+            task.defer(trySinisterClaim, model)
+        end
     end))
-
-    table.insert(record.Connections, prompt:GetPropertyChangedSignal("Enabled"):Connect(function()
-        trySinisterClaim(model, prompt, icon)
-    end))
-
-    table.insert(record.Connections, billboard:GetPropertyChangedSignal("Enabled"):Connect(function()
-        trySinisterClaim(model, prompt, icon)
-    end))
-
-    task.defer(function()
-        trySinisterClaim(model, prompt, icon)
-    end)
 
     table.insert(record.Connections, model.AncestryChanged:Connect(function(_, parent)
         if parent then
@@ -657,27 +760,37 @@ local function registerPumpkin(model)
 
         registeredPumpkins[model] = nil
     end))
+
+    task.defer(trySinisterClaim, model)
 end
 
 local Plates = workspace:FindFirstChild("Plates")
 
 if Plates then
-    local function registerPlate(plate)
-        local existing = plate:FindFirstChild("Pumpkin")
-        if existing then
-            registerPumpkin(existing)
+    local function registerPumpkinsIn(plate)
+        for _, object in ipairs(plate:GetDescendants()) do
+            if object.Name == "Pumpkin" and object:IsA("Model") then
+                registerPumpkin(object)
+            end
         end
 
-        keepConnection(plate.DescendantAdded:Connect(function(object)
-            local candidate = object
-            while candidate and candidate.Parent ~= plate do
-                candidate = candidate.Parent
-            end
+        local direct = plate:FindFirstChild("Pumpkin")
+        if direct and direct:IsA("Model") then
+            registerPumpkin(direct)
+        end
+    end
 
-            if candidate and candidate.Parent == plate
-                and candidate.Name == "Pumpkin"
-                and candidate:IsA("Model") then
-                task.delay(0.1, registerPumpkin, candidate)
+    local function registerPlate(plate)
+        registerPumpkinsIn(plate)
+
+        keepConnection(plate.DescendantAdded:Connect(function(object)
+            if object.Name == "Pumpkin" and object:IsA("Model") then
+                registerPumpkin(object)
+            else
+                local candidate = object:FindFirstAncestor("Pumpkin")
+                if candidate and candidate:IsA("Model") then
+                    task.defer(registerPumpkin, candidate)
+                end
             end
         end))
     end
@@ -698,25 +811,34 @@ Misc:Toggle({
 
         if enabled and Plates then
             for _, plate in ipairs(Plates:GetChildren()) do
-                local model = plate:FindFirstChild("Pumpkin")
-                if model then
-                    registerPumpkin(model)
-
-                    local inner = model:FindFirstChild("Pumpkin")
-                    local prompt = inner and inner:FindFirstChild("ProximityPrompt", true)
-                    local billboard = inner and inner:FindFirstChild("BillboardGui", true)
-                    local frame = billboard and billboard:FindFirstChild("Frame")
-                    local innerFrame = frame and frame:FindFirstChild("Frame")
-                    local icon = innerFrame and innerFrame:FindFirstChild("Icon")
-
-                    if prompt and icon then
-                        trySinisterClaim(model, prompt, icon)
+                for _, model in ipairs(plate:GetDescendants()) do
+                    if model.Name == "Pumpkin" and model:IsA("Model") then
+                        registerPumpkin(model)
+                        trySinisterClaim(model)
                     end
                 end
             end
         end
     end
 })
+
+JL:Spawn(function()
+    while JL:IsAlive() do
+        if sinisterEnabled and Plates then
+            for _, plate in ipairs(Plates:GetChildren()) do
+                for _, model in ipairs(plate:GetDescendants()) do
+                    if model.Name == "Pumpkin" and model:IsA("Model") then
+                        if not registeredPumpkins[model] then
+                            registerPumpkin(model)
+                        end
+                        trySinisterClaim(model)
+                    end
+                end
+            end
+        end
+        task.wait(0.25)
+    end
+end)
 
 while not gearListReady and JL:IsAlive() do
     task.wait()
@@ -1278,6 +1400,20 @@ local treasureMapEspEnabled = false
 local treasureMapObjects = {}
 local treasureMapConnections = {}
 
+local function findNamedDescendant(root, targetName, className)
+    if not root then
+        return nil
+    end
+
+    local wanted = targetName:lower()
+    for _, object in ipairs(root:GetDescendants()) do
+        if object.Name:lower() == wanted and (not className or object:IsA(className)) then
+            return object
+        end
+    end
+    return nil
+end
+
 local function isTreasureMapObject(object)
     if not object or not object.Parent or object.Name ~= "MapModel" then
         return false
@@ -1287,8 +1423,9 @@ local function isTreasureMapObject(object)
         return false
     end
 
-    return object:FindFirstChild("ProximityPrompt") ~= nil
-        and object:FindFirstChild("rotationModule") ~= nil
+    local prompt = findNamedDescendant(object, "ProximityPrompt", "ProximityPrompt")
+    local rotation = findNamedDescendant(object, "rotationModule")
+    return prompt ~= nil and rotation ~= nil
 end
 
 local function removeTreasureMapESP(object)
@@ -1296,6 +1433,8 @@ local function removeTreasureMapESP(object)
     if not record then
         return
     end
+
+    disconnect(record.AncestryConnection)
 
     if record.Highlight then
         record.Highlight:Destroy()
@@ -1309,16 +1448,13 @@ local function removeTreasureMapESP(object)
 end
 
 local function addTreasureMapESP(object)
-    if not treasureMapEspEnabled or treasureMapObjects[object] then
+    if not treasureMapEspEnabled or treasureMapObjects[object]
+        or not isTreasureMapObject(object) then
         return
     end
 
-    if not isTreasureMapObject(object) then
-        return
-    end
-
-    local adornee = object:IsA("BasePart") and object or
-        (object:IsA("Model") and (object.PrimaryPart or object:FindFirstChildWhichIsA("BasePart", true)))
+    local adornee = object:IsA("BasePart") and object
+        or (object:IsA("Model") and (object.PrimaryPart or object:FindFirstChildWhichIsA("BasePart", true)))
 
     if not adornee then
         return
@@ -1354,16 +1490,41 @@ local function addTreasureMapESP(object)
     label.TextSize = 12
     label.Parent = billboard
 
-    treasureMapObjects[object] = {
+    local record = {
         Highlight = highlight,
         Billboard = billboard
     }
+    treasureMapObjects[object] = record
 
-    table.insert(treasureMapConnections, object.AncestryChanged:Connect(function(_, parent)
+    record.AncestryConnection = object.AncestryChanged:Connect(function(_, parent)
         if not parent then
             removeTreasureMapESP(object)
         end
-    end))
+    end)
+end
+
+local function queueTreasureMapCheck(object)
+    if not object then
+        return
+    end
+
+    task.delay(0.15, function()
+        if treasureMapEspEnabled and object.Parent then
+            addTreasureMapESP(object)
+        end
+    end)
+end
+
+local function scanTreasureMaps(container)
+    if not container then
+        return
+    end
+
+    for _, object in ipairs(container:GetDescendants()) do
+        if object.Name == "MapModel" then
+            queueTreasureMapCheck(object)
+        end
+    end
 end
 
 local function updateTreasureMapESP()
@@ -1372,17 +1533,7 @@ local function updateTreasureMapESP()
     end
 
     if treasureMapEspEnabled then
-        for _, plate in ipairs(Plates:GetChildren()) do
-            for _, object in ipairs(plate:GetDescendants()) do
-                if object.Name == "MapModel" then
-                    task.delay(0.1, function()
-                        if treasureMapEspEnabled then
-                            addTreasureMapESP(object)
-                        end
-                    end)
-                end
-            end
-        end
+        scanTreasureMaps(Plates)
     else
         local objects = {}
         for object in pairs(treasureMapObjects) do
@@ -1402,16 +1553,12 @@ if Plates then
                 and object
                 or object:FindFirstAncestor("MapModel")
 
-            if not candidate then
-                return
+            if candidate then
+                queueTreasureMapCheck(candidate)
             end
-
-            task.delay(0.1, function()
-                if treasureMapEspEnabled and candidate.Parent then
-                    addTreasureMapESP(candidate)
-                end
-            end)
         end))
+
+        scanTreasureMaps(plate)
     end
 
     for _, plate in ipairs(Plates:GetChildren()) do
@@ -1420,13 +1567,6 @@ if Plates then
 
     table.insert(treasureMapConnections, Plates.ChildAdded:Connect(function(plate)
         watchTreasurePlate(plate)
-        if treasureMapEspEnabled then
-            for _, object in ipairs(plate:GetDescendants()) do
-                if object.Name == "MapModel" then
-                    addTreasureMapESP(object)
-                end
-            end
-        end
     end))
 end
 
