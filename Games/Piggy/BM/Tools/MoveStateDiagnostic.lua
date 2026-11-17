@@ -137,6 +137,30 @@ for _, object in ipairs(getgc(true)) do
         DumpTable("ClientState", object, 0)
         DumpRelevantMethods("ClientState", object)
 
+        local toolbar = rawget(object, "Toolbar")
+        local nestedClient = type(toolbar) == "table" and rawget(toolbar, "BuildModeClient")
+        print("\\n========== ClientState.Toolbar.BuildModeClient ==========")
+        print("[MoveState] " .. Describe(nestedClient))
+        if type(nestedClient) == "table" then
+            for key, value in pairs(nestedClient) do
+                print("[MoveState] raw ." .. tostring(key) .. " = " .. Describe(value))
+                if type(value) == "function" then
+                    DumpFunction("Toolbar.BuildModeClient." .. tostring(key), value)
+                end
+            end
+            local nestedMt = getmetatable(nestedClient)
+            local nestedIndex = type(nestedMt) == "table" and rawget(nestedMt, "__index")
+            print("[MoveState] metatable.__index = " .. Describe(nestedIndex))
+            if type(nestedIndex) == "table" then
+                for key, value in pairs(nestedIndex) do
+                    if type(value) == "function" then
+                        print("[MoveState] method " .. tostring(key))
+                        DumpFunction("Toolbar.BuildModeClient." .. tostring(key), value)
+                    end
+                end
+            end
+        end
+
         local handles = rawget(object, "MoveHandles")
         if handles then
             DumpTable("MoveHandles", handles, 0)
