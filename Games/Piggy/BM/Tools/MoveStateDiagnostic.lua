@@ -91,6 +91,36 @@ local function DumpFunction(label, fn)
     end
 end
 
+
+local function DumpRelevantMethods(label, object)
+    local mt = type(object) == "table" and getmetatable(object)
+    if type(mt) ~= "table" then
+        print("[MoveState] " .. label .. " metatable unavailable")
+        return
+    end
+
+    local index = rawget(mt, "__index")
+    local source = type(index) == "table" and index or mt
+    print("\\n[MoveState] " .. label .. " methods:")
+    local count = 0
+    for key, value in pairs(source) do
+        if type(value) == "function" then
+            local name = tostring(key)
+            local lower = name:lower()
+            if lower:find("select") or lower:find("ador")
+                or lower:find("handle") or lower:find("move")
+                or lower:find("block") or lower:find("show")
+                or lower:find("hide") or lower:find("update")
+                or lower:find("attach") or lower:find("set") then
+                count += 1
+                print("  " .. name .. " = function")
+                if count <= 12 then DumpFunction(label .. "." .. name, value) end
+            end
+        end
+    end
+    print("[MoveState] " .. label .. " relevant method count: " .. count)
+end
+
 print("========== NATIVE MOVE STATE DIAGNOSTIC ==========")
 print("[MoveState] BuildModeGui: " .. BuildModeGui:GetFullName())
 
@@ -105,10 +135,12 @@ for _, object in ipairs(getgc(true)) do
         found += 1
         print("\n========== CLIENT STATE #" .. found .. " ==========")
         DumpTable("ClientState", object, 0)
+        DumpRelevantMethods("ClientState", object)
 
         local handles = rawget(object, "MoveHandles")
         if handles then
             DumpTable("MoveHandles", handles, 0)
+            DumpRelevantMethods("MoveHandles", handles)
             for _, key in ipairs({"MouseDrag", "MouseButton1Down", "MouseButton1Up", "TouchMoved"}) do
                 local value = handles[key]
                 if type(value) == "function" then
