@@ -269,6 +269,10 @@ function PlayerDetection.GetState(player)
     }
 end
 
+if type(getgenv) == "function" then
+    getgenv().HH_PlayerDetection = PlayerDetection
+end
+
 local FREEZE_CONFIG = {
     MaxAimAngle = 42,
     MaxDistance = 300,
