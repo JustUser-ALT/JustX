@@ -1,111 +1,92 @@
--- Native Move Selection Diagnostic v13 (read-only, targeted modules only)
+-- Native Move Selection Diagnostic v14 (read-only)
 local RS = game:GetService("ReplicatedStorage")
 local root = RS:WaitForChild("BuildMode")
-local output, LIMIT = 0, 120
-
-local function log(v)
-    if output >= LIMIT then return end
-    output += 1
-    print("[MoveState] " .. tostring(v))
+local count, LIMIT = 0, 100
+local function log(s)
+    if count >= LIMIT then return end
+    count = count + 1
+    print("[MoveState] " .. tostring(s))
 end
-
-local function raw(t, k)
+local function raw(t,k)
     if type(t) ~= "table" then return nil end
-    local ok, v = pcall(rawget, t, k)
+    local ok,v = pcall(rawget,t,k)
     return ok and v or nil
 end
-
-local function desc(v)
+local function describe(v)
     if typeof(v) == "Instance" then
-        local ok, p = pcall(function() return v:GetFullName() end)
-        return (ok and p or v.Name) .. " <" .. v.ClassName .. ">"
+        local ok,n = pcall(function() return v:GetFullName() end)
+        return (ok and n or v.Name) .. " <" .. v.ClassName .. ">"
     end
     return type(v)
 end
-
-local function upvalues(label, fn, depth)
+local function dumpTable(label,t,depth)
+    if type(t) ~= "table" then return end
+    local n = 0
+    for k,v in pairs(t) do
+        n = n + 1
+        if n > 24 then log(label .. " ...more keys"); break end
+        local key = tostring(k)
+        if #key > 45 then key = string.sub(key,1,45) end
+        log(label .. "[" .. key .. "]=" .. describe(v))
+        if depth > 0 and type(v) == "table" then
+            local hits = {}
+            for _, wanted in ipairs({"SelectedBlock","MoveHandles","BoxSelection","Toolbar","BuildModeClient","BuildingModeToolbar","Placement","ClientState"}) do
+                local x = raw(v,wanted)
+                if x ~= nil then hits[#hits+1] = wanted .. "=" .. describe(x) end
+            end
+            if #hits > 0 then log(label .. "[" .. key .. "] MATCH " .. table.concat(hits," ; ")) end
+        end
+    end
+end
+local function inspectFunction(label,fn)
     if type(fn) ~= "function" then return end
     if not debug or type(debug.getupvalues) ~= "function" then
-        log(label .. ": debug.getupvalues unavailable")
-        return
+        log(label .. " getupvalues unavailable"); return
     end
-    local ok, values = pcall(debug.getupvalues, fn)
-    if not ok or type(values) ~= "table" then
-        log(label .. ": getupvalues failed " .. tostring(values))
-        return
+    local ok,ups = pcall(debug.getupvalues,fn)
+    if not ok or type(ups) ~= "table" then log(label .. " upvalues failed"); return end
+    for i,v in pairs(ups) do
+        log(label .. " U" .. tostring(i) .. "=" .. describe(v))
+        if type(v) == "table" then dumpTable(label .. " U" .. tostring(i),v,1) end
     end
-    for i, value in pairs(values) do
-        log(label .. " U" .. tostring(i) .. "=" .. desc(value))
-        if type(value) == "table" then
-            local matches = {}
-            for _, key in ipairs({"SelectedBlock","MoveHandles","BoxSelection","Toolbar","BuildModeClient","BuildingModeToolbar","Placement"}) do
-                local found = raw(value, key)
-                if found ~= nil then matches[#matches+1] = key .. "=" .. desc(found) end
-            end
-            if #matches > 0 then log(label .. " MATCH " .. table.concat(matches, " ; ")) end
-            if depth and depth > 0 then
-                local mt = getmetatable(value)
-                local idx = type(mt) == "table" and raw(mt, "__index") or nil
-                if type(idx) == "table" then
-                    for _, methodName in ipairs({"Mount","BindBuildActions","PlaceBlockAction","Update","Action"}) do
-                        local method = raw(idx, methodName)
-                        if type(method) == "function" then
-                            log(label .. " METHOD " .. methodName)
-                            upvalues(label .. "." .. methodName, method, depth - 1)
-                        end
-                    end
+    if debug.getconstants then
+        local cok,cs = pcall(debug.getconstants,fn)
+        if cok and type(cs) == "table" then
+            local n=0
+            for i,c in pairs(cs) do
+                if type(c)=="string" and (string.find(c,"Selected") or string.find(c,"Toolbar") or string.find(c,"Move") or string.find(c,"Mount") or string.find(c,"BuildMode")) then
+                    log(label .. " CONST[" .. tostring(i) .. "]=" .. c)
+                    n=n+1
+                    if n>=18 then break end
                 end
             end
+        else
+            log(label .. " constants unavailable")
         end
     end
 end
-
-local function inspectModule(name)
-    local module = root:FindFirstChild(name)
-    if not module or not module:IsA("ModuleScript") then
-        log("MODULE MISSING " .. name)
-        return
-    end
-    local ok, result = pcall(require, module)
-    log("MODULE " .. name .. " require=" .. tostring(ok) .. " result=" .. desc(result))
-    if not ok or type(result) ~= "table" then return end
-    for key, value in pairs(result) do
-        log(name .. "." .. tostring(key) .. "=" .. desc(value))
-        if type(value) == "function" and (key == "new" or key == "Mount" or key == "BindBuildActions"
-            or key == "PlaceBlockAction" or key == "Update" or key == "Action") then
-            upvalues(name .. "." .. tostring(key), value, 1)
-        end
-    end
-    local mt = getmetatable(result)
-    local idx = type(mt) == "table" and raw(mt, "__index") or nil
-    if type(idx) == "table" then
-        for key, value in pairs(idx) do
-            if type(value) == "function" then
-                log(name .. ".__index." .. tostring(key) .. "=function")
-                if key == "Mount" or key == "BindBuildActions" or key == "PlaceBlockAction" then
-                    upvalues(name .. ".__index." .. tostring(key), value, 1)
-                end
-            end
-        end
+log("===== TARGETED CONSTRUCTOR DIAGNOSTIC V14 =====")
+local ok,client = pcall(require,root:WaitForChild("BuildModeClient"))
+log("BuildModeClient require=" .. tostring(ok) .. " result=" .. describe(client))
+if ok and type(client)=="table" then
+    for _,name in ipairs({"new","Mount","BindBuildActions","PlaceBlockAction","Destroy"}) do
+        local fn=raw(client,name)
+        log("BuildModeClient." .. name .. "=" .. describe(fn))
+        if name=="new" or name=="Mount" then inspectFunction("BuildModeClient." .. name,fn) end
     end
 end
-
-log("===== TARGETED MODULE DIAGNOSTIC V13 =====")
-for _, name in ipairs({"BuildModeClient","Toolbar","BuildingModeToolbar","BuildingMode","RenderLoop","Placement"}) do
-    inspectModule(name)
-end
-
-local modes = root:FindFirstChild("Modes")
-local move = modes and modes:FindFirstChild("Move")
-if move then
-    local ok, result = pcall(require, move)
-    log("MODULE Modes.Move require=" .. tostring(ok) .. " result=" .. desc(result))
-    if ok and type(result) == "table" then
-        for _, key in ipairs({"Init","Enter","Update","Action","Exit"}) do
-            local fn = raw(result, key)
-            log("Modes.Move." .. key .. "=" .. desc(fn))
-            upvalues("Modes.Move." .. key, fn, 0)
-        end
+local gui=game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("BuildModeGui")
+log("GUI=" .. describe(gui))
+local main=gui and gui:FindFirstChild("Main")
+log("Main=" .. describe(main))
+if main and main:IsA("LocalScript") then
+    log("Main Disabled=" .. tostring(main.Disabled))
+    if getsenv then
+        local eok,env=pcall(getsenv,main)
+        log("Main getsenv=" .. tostring(eok) .. " " .. describe(env))
+        if eok and type(env)=="table" then dumpTable("Main ENV",env,0) end
+    else
+        log("getsenv unavailable")
     end
 end
-log("===== END V13 =====")
+log("===== END V14 =====")
