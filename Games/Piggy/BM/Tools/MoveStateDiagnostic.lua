@@ -220,7 +220,9 @@ for _, object in ipairs(getgc(true)) do
         local buildModeClient = rawget(object, "BuildModeClient")
         local toolbar = rawget(object, "Toolbar")
         local buildingModeToolbar = type(toolbar) == "table" and rawget(toolbar, "BuildingModeToolbar")
+        local toolbarBuildModeClient = type(toolbar) == "table" and rawget(toolbar, "BuildModeClient")
         DumpObject("ClientState.BuildModeClient", buildModeClient)
+        DumpObject("ClientState.Toolbar.BuildModeClient", toolbarBuildModeClient)
         DumpObject("ClientState.Toolbar", toolbar)
         DumpObject("ClientState.Toolbar.BuildingModeToolbar", buildingModeToolbar)
         break
