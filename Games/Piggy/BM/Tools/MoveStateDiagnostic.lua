@@ -1,33 +1,65 @@
--- Native Move Selection Diagnostic V20 (constructor source, read-only)
+-- Native Move Selection Diagnostic V21 (constructor tail and owner references, read-only)
+local Players=game:GetService("Players")
 local RS=game:GetService("ReplicatedStorage")
 local BM=RS:WaitForChild("BuildMode")
 local function log(s) print("[MoveState] "..tostring(s)) end
-local function source(obj,label)
- if type(decompile)~="function" then log(label.." decompile unavailable"); return nil end
+local function getSource(obj)
+ if type(decompile)~="function" then return nil end
  local ok,r=pcall(decompile,obj)
- log(label.." decompile="..tostring(ok).." type="..type(r))
  if ok and type(r)=="string" then return r end
 end
-local function show(obj,label,first,last)
- local s=source(obj,label)
- if not s then return end
- local lines={}
- for line in string.gmatch(s,"([^\n]+)") do lines[#lines+1]=line end
- log(label.." total lines="..#lines)
- for i=first,math.min(last,#lines) do log(label.."["..i.."] "..string.sub(lines[i],1,240)) end
+local function lines(s)
+ local t={}
+ for line in string.gmatch(s or "","([^\n]+)") do t[#t+1]=line end
+ return t
 end
-log("===== CONSTRUCTOR SOURCE V20 =====")
+log("===== CONSTRUCTOR TAIL V21 =====")
 local bc=BM:FindFirstChild("BuildModeClient")
 if bc then
- show(bc,"BuildModeClient",1,175)
- show(bc,"BuildModeClient",175,360)
+ local t=lines(getSource(bc))
+ log("BuildModeClient lines="..#t)
+ for i=math.max(1,#t-52),#t do log("BC["..i.."] "..string.sub(t[i],1,220)) end
 end
-local tb=BM:FindFirstChild("Toolbar")
-if tb then
- show(tb,"Toolbar",205,270)
+local main=Players.LocalPlayer:WaitForChild("PlayerGui"):WaitForChild("BuildModeGui"):FindFirstChild("Main")
+if main then
+ local t=lines(getSource(main))
+ log("Main source lines="..#t)
+ local hits={}
+ for i,line in ipairs(t) do
+  local low=string.lower(line)
+  if string.find(low,"buildmodeclient",1,true) or string.find(low,".new(",1,true) or string.find(low,":mount(",1,true) then
+   hits[#hits+1]=i
+  end
+ end
+ log("Main relevant lines="..#hits)
+ for _,i in ipairs(hits) do
+  for j=math.max(1,i-2),math.min(#t,i+3) do log("Main["..j.."] "..string.sub(t[j],1,220)) end
+ end
+ local envfn=getsenv
+ if type(envfn)=="function" then
+  local ok,env=pcall(envfn,main)
+  log("Main getsenv="..tostring(ok).." type="..type(env))
+  if ok and type(env)=="table" then
+   local count=0
+   for k,v in pairs(env) do
+    local key=tostring(k)
+    local low=string.lower(key)
+    if string.find(low,"build",1,true) or string.find(low,"client",1,true) or string.find(low,"state",1,true) or string.find(low,"gui",1,true) then
+     count=count+1
+     local desc=typeof(v)
+     if type(v)=="table" then
+      local keys={}
+      for a,b in pairs(v) do
+       if #keys>=8 then break end
+       keys[#keys+1]=tostring(a).."="..typeof(b)
+      end
+      desc=desc.." {"..table.concat(keys,",").."}"
+     end
+     log("ENV "..key.." type="..desc)
+    end
+   end
+   log("Main env relevant count="..count)
+  end
+ end
 end
-local bmt=BM:FindFirstChild("BuildingModeToolbar")
-if bmt then
- show(bmt,"BuildingModeToolbar",45,75)
-end
-log("===== END V20 =====")
+log("===== END V21 =====")
