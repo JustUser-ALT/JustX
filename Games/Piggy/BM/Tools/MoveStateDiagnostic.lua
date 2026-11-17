@@ -1,5 +1,5 @@
--- Native Move Selection Diagnostic v8 (read-only)
--- Run in ORIGINAL Piggy Build Mode with a block selected and Move active.
+-- Native Move Selection Diagnostic v9 (read-only)
+-- Avoids Enumeration.__index by using rawget on inspected tables.
 
 local RS = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
@@ -10,6 +10,12 @@ local function log(v)
     if count >= LIMIT then return end
     count += 1
     print("[MoveState] " .. tostring(v))
+end
+
+local function safeRaw(t, key)
+    if type(t) ~= "table" then return nil end
+    local ok, value = pcall(rawget, t, key)
+    return ok and value or nil
 end
 
 local function describe(v)
@@ -24,28 +30,42 @@ end
 local function getClientState()
     local root = RS:FindFirstChild("BuildMode")
     local clientModule = root and root:FindFirstChild("BuildModeClient")
-    if clientModule and type(require) == "function" then
+    if clientModule then
         local ok, class = pcall(require, clientModule)
         if ok and type(class) == "table" then
-            local ctor = class.new
+            local ctor = safeRaw(class, "new")
             if type(ctor) == "function" and debug and type(debug.getupvalues) == "function" then
                 local good, ups = pcall(debug.getupvalues, ctor)
                 if good and type(ups) == "table" then
                     for _, value in pairs(ups) do
-                        if type(value) == "table" and value.Toolbar then return value end
+                        if type(value) == "table" then
+                            local toolbar = safeRaw(value, "Toolbar")
+                            local selected = safeRaw(value, "SelectedBlock")
+                            if toolbar ~= nil or selected ~= nil then
+                                return value, "BuildModeClient.new upvalue"
+                            end
+                        end
                     end
                 end
             end
         end
     end
+
     if debug and type(debug.getgc) == "function" then
         local ok, objects = pcall(debug.getgc, true)
         if ok and type(objects) == "table" then
             for _, value in ipairs(objects) do
-                if type(value) == "table" and value.SelectedBlock ~= nil and value.Toolbar then return value end
+                if type(value) == "table" then
+                    local toolbar = safeRaw(value, "Toolbar")
+                    local selected = safeRaw(value, "SelectedBlock")
+                    if toolbar ~= nil and selected ~= nil then
+                        return value, "GC table with raw Toolbar and SelectedBlock"
+                    end
+                end
             end
         end
     end
+    return nil, "not found"
 end
 
 local function inspectSource(label, fn)
@@ -71,22 +91,22 @@ local function inspectSource(label, fn)
             for n = math.max(1, i - 1), math.min(#lines, i + 1) do selected[n] = lines[n] end
         end
     end
-    local emitted = {}
+    local emitted = false
     for i = 1, #lines do
-        if selected[i] and not emitted[i] then
-            emitted[i] = true
+        if selected[i] then
+            emitted = true
             local line = lines[i]
             if #line > 220 then line = string.sub(line, 1, 220) .. "..." end
             log(label .. ":" .. i .. ": " .. line)
         end
     end
-    if next(selected) == nil then log("No matching source lines") end
+    if not emitted then log("No matching source lines") end
 end
 
 local function inspectMethods(label, object)
     if type(object) ~= "table" then log(label .. " unavailable: " .. describe(object)); return end
     local mt = getmetatable(object)
-    local index = mt and mt.__index
+    local index = type(mt) == "table" and safeRaw(mt, "__index") or nil
     log(label .. " object=" .. describe(object))
     log(label .. " metatable.__index=" .. describe(index))
     if type(index) == "table" then
@@ -103,21 +123,23 @@ local function inspectMethods(label, object)
     end
 end
 
-log("===== ACTION CALLER DIAGNOSTIC V8 =====")
+log("===== ACTION CALLER DIAGNOSTIC V9 =====")
 log("GUI=" .. gui:GetFullName())
-local state = getClientState()
+local state, source = getClientState()
+log("ClientState source=" .. source)
 log("ClientState=" .. describe(state))
 if state then
-    log("SelectedBlock=" .. describe(state.SelectedBlock))
-    local toolbar = state.Toolbar
+    local selected = safeRaw(state, "SelectedBlock")
+    local toolbar = safeRaw(state, "Toolbar")
+    log("SelectedBlock=" .. describe(selected))
     log("Toolbar=" .. describe(toolbar))
-    local buildingToolbar = type(toolbar) == "table" and toolbar.BuildingModeToolbar
+    local buildingToolbar = safeRaw(toolbar, "BuildingModeToolbar")
     log("BuildingModeToolbar=" .. describe(buildingToolbar))
-    local client = type(buildingToolbar) == "table" and buildingToolbar.BuildModeClient
+    local client = safeRaw(buildingToolbar, "BuildModeClient")
     log("Nested BuildModeClient=" .. describe(client))
     inspectMethods("BuildModeClient", client)
     inspectMethods("BuildingModeToolbar", buildingToolbar)
 else
-    log("ClientState lookup failed")
+    log("ClientState lookup failed safely; no state was modified")
 end
 log("===== END =====")
