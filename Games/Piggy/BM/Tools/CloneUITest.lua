@@ -18,7 +18,7 @@ if type(Env.CloneUITestCleanup) == "function" then
     pcall(Env.CloneUITestCleanup)
 end
 
--- Find the existing native toolbar without changing its contents.
+-- Find the native toolbar and use its parent coordinate space.
 local ClientState
 for attempt = 1, 100 do
     for _, object in ipairs(getgc(true)) do
@@ -34,34 +34,27 @@ for attempt = 1, 100 do
 end
 assert(ClientState, "[CloneUITest] BuildMode ClientState not found")
 
-local Toolbar = ClientState.Toolbar
-local BuildingToolbar = Toolbar and Toolbar.BuildingModeToolbar
+local BuildingToolbar = ClientState.Toolbar and ClientState.Toolbar.BuildingModeToolbar
 local ToolbarFrame = BuildingToolbar and BuildingToolbar.Instance
-assert(ToolbarFrame and ToolbarFrame:IsA("GuiObject"),
+assert(ToolbarFrame and ToolbarFrame:IsA("GuiObject") and ToolbarFrame.Parent,
     "[CloneUITest] Native building toolbar not found")
 
-local OldGui = PlayerGui:FindFirstChild("JustXCloneUITest")
-if OldGui then OldGui:Destroy() end
+local Parent = ToolbarFrame.Parent
+assert(Parent:IsA("GuiObject"), "[CloneUITest] Toolbar parent is not a GuiObject")
 
-local Gui = Instance.new("ScreenGui")
-Gui.Name = "JustXCloneUITest"
-Gui.ResetOnSpawn = false
-Gui.IgnoreGuiInset = BuildModeGui.IgnoreGuiInset
-Gui.DisplayOrder = 10001
-Gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-Gui.Parent = PlayerGui
+local OldButton = Parent:FindFirstChild("JustXCloneButton")
+if OldButton then OldButton:Destroy() end
 
 local Button = Instance.new("TextButton")
-Button.Name = "CloneButton"
+Button.Name = "JustXCloneButton"
 Button.AnchorPoint = Vector2.zero
-Button.Size = UDim2.fromOffset(90, 88)
 Button.BackgroundColor3 = Color3.fromRGB(244, 139, 145)
 Button.BorderSizePixel = 0
 Button.AutoButtonColor = true
 Button.Text = ""
 Button.Visible = false
-Button.ZIndex = 20
-Button.Parent = Gui
+Button.ZIndex = ToolbarFrame.ZIndex + 10
+Button.Parent = Parent
 
 local ButtonCorner = Instance.new("UICorner")
 ButtonCorner.CornerRadius = UDim.new(0, 18)
@@ -73,65 +66,74 @@ ButtonStroke.Thickness = 1
 ButtonStroke.Transparency = 0.35
 ButtonStroke.Parent = Button
 
--- Two offset outlined cards recreate the Concepts clone symbol.
-local function MakeCard(name, position, size, zIndex)
-    local outer = Instance.new("Frame")
-    outer.Name = name .. "Outline"
-    outer.Position = position
-    outer.Size = size
-    outer.BackgroundColor3 = Color3.fromRGB(28, 28, 31)
-    outer.BorderSizePixel = 0
-    outer.ZIndex = zIndex
-    outer.Parent = Button
+-- Scale the complete symbol with the button so nothing overflows.
+local IconArea = Instance.new("Frame")
+IconArea.Name = "IconArea"
+IconArea.BackgroundTransparency = 1
+IconArea.AnchorPoint = Vector2.new(0.5, 0.5)
+IconArea.Position = UDim2.fromScale(0.5, 0.49)
+IconArea.Size = UDim2.fromScale(0.72, 0.72)
+IconArea.ZIndex = Button.ZIndex + 1
+IconArea.Parent = Button
 
-    local outerCorner = Instance.new("UICorner")
-    outerCorner.CornerRadius = UDim.new(0, 4)
-    outerCorner.Parent = outer
+local function MakeCard(name, position, zIndex)
+    local card = Instance.new("Frame")
+    card.Name = name
+    card.Position = position
+    card.Size = UDim2.fromScale(0.64, 0.78)
+    card.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    card.BorderSizePixel = 0
+    card.ZIndex = zIndex
+    card.Parent = IconArea
 
-    local inner = Instance.new("Frame")
-    inner.Name = "WhiteFace"
-    inner.Position = UDim2.fromOffset(3, 3)
-    inner.Size = UDim2.new(1, -6, 1, -6)
-    inner.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    inner.BorderSizePixel = 0
-    inner.ZIndex = zIndex + 1
-    inner.Parent = outer
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 5)
+    corner.Parent = card
 
-    local innerCorner = Instance.new("UICorner")
-    innerCorner.CornerRadius = UDim.new(0, 2)
-    innerCorner.Parent = inner
-    return outer
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(28, 28, 31)
+    stroke.Thickness = 3
+    stroke.Parent = card
+    return card
 end
 
-MakeCard("BackCard", UDim2.fromOffset(30, 17), UDim2.fromOffset(38, 43), 21)
-MakeCard("FrontCard", UDim2.fromOffset(21, 27), UDim2.fromOffset(38, 43), 23)
+MakeCard("BackCard", UDim2.fromScale(0.34, 0.02), Button.ZIndex + 1)
+MakeCard("FrontCard", UDim2.fromScale(0.02, 0.20), Button.ZIndex + 2)
 
 local Label = Instance.new("TextLabel")
 Label.Name = "CloneLabel"
 Label.BackgroundTransparency = 1
-Label.Position = UDim2.fromOffset(0, 33)
-Label.Size = UDim2.new(1, 0, 0, 23)
+Label.AnchorPoint = Vector2.new(0.5, 0.5)
+Label.Position = UDim2.fromScale(0.5, 0.57)
+Label.Size = UDim2.fromScale(1.15, 0.34)
 Label.Font = Enum.Font.GothamBlack
 Label.Text = "CLONE"
-Label.TextSize = 15
+Label.TextScaled = true
 Label.TextColor3 = Color3.fromRGB(24, 24, 27)
 Label.TextStrokeColor3 = Color3.fromRGB(255, 255, 255)
-Label.TextStrokeTransparency = 0.2
-Label.ZIndex = 25
-Label.Parent = Button
+Label.TextStrokeTransparency = 0.15
+Label.ZIndex = Button.ZIndex + 4
+Label.Parent = IconArea
 
 local function UpdatePosition()
-    if not Gui.Parent or not ToolbarFrame.Parent then return end
+    if not Button.Parent or not ToolbarFrame.Parent then return end
 
-    local height = math.clamp(ToolbarFrame.AbsoluteSize.Y * 0.733, 64, 90)
-    local width = height
-    local gap = math.max(10, height * 0.12)
+    local parentSize = Parent.AbsoluteSize
+    if parentSize.X <= 0 or parentSize.Y <= 0 then return end
 
-    Button.Size = UDim2.fromOffset(width, height)
-    Button.Position = UDim2.fromOffset(
-        ToolbarFrame.AbsolutePosition.X - width - gap,
-        ToolbarFrame.AbsolutePosition.Y + (ToolbarFrame.AbsoluteSize.Y - height) * 0.5
-    )
+    local toolbarPosition = ToolbarFrame.AbsolutePosition
+    local parentPosition = Parent.AbsolutePosition
+    local toolbarSize = ToolbarFrame.AbsoluteSize
+
+    local buttonHeight = math.clamp(toolbarSize.Y * 0.733, 64, 90)
+    local buttonWidth = buttonHeight
+    local gap = math.max(10, buttonHeight * 0.12)
+
+    local x = toolbarPosition.X - parentPosition.X - buttonWidth - gap
+    local y = toolbarPosition.Y - parentPosition.Y + (toolbarSize.Y - buttonHeight) * 0.5
+
+    Button.Size = UDim2.fromScale(buttonWidth / parentSize.X, buttonHeight / parentSize.Y)
+    Button.Position = UDim2.fromScale(x / parentSize.X, y / parentSize.Y)
 end
 
 local function GetModeName()
@@ -141,15 +143,15 @@ end
 
 local function UpdateVisibility(modeName)
     Button.Visible = modeName == "Move"
-    if Button.Visible then
-        UpdatePosition()
-    end
+    if Button.Visible then UpdatePosition() end
 end
 
 local Connections = {}
 table.insert(Connections, ChangedEvent.Event:Connect(UpdateVisibility))
 table.insert(Connections, ToolbarFrame:GetPropertyChangedSignal("AbsolutePosition"):Connect(UpdatePosition))
 table.insert(Connections, ToolbarFrame:GetPropertyChangedSignal("AbsoluteSize"):Connect(UpdatePosition))
+table.insert(Connections, Parent:GetPropertyChangedSignal("AbsoluteSize"):Connect(UpdatePosition))
+table.insert(Connections, Parent:GetPropertyChangedSignal("AbsolutePosition"):Connect(UpdatePosition))
 
 Button.Activated:Connect(function()
     warn("[CloneUITest] UI only — clone behavior is not connected yet.")
@@ -167,15 +169,10 @@ local function Cleanup()
     end
     table.clear(Connections)
 
-    if Gui and Gui.Parent then
-        Gui:Destroy()
-    end
-
-    if Env.CloneUITestCleanup == Cleanup then
-        Env.CloneUITestCleanup = nil
-    end
+    if Button and Button.Parent then Button:Destroy() end
+    if Env.CloneUITestCleanup == Cleanup then Env.CloneUITestCleanup = nil end
     print("[CloneUITest] Cleaned up")
 end
 
 Env.CloneUITestCleanup = Cleanup
-print("[CloneUITest] Loaded — button is visible only in Move mode.")
+print("[CloneUITest] Loaded — UI only, visible in Move mode.")
