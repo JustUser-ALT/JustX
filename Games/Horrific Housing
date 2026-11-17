@@ -770,6 +770,12 @@ local platesFolderConnections = {}
 local function registerPlatesWatcher(callback)
     table.insert(platesWatchers, callback)
     callback(Plates)
+
+    if Plates then
+        for _, plate in ipairs(Plates:GetChildren()) do
+            callback(Plates, plate)
+        end
+    end
 end
 
 local function bindPlates(folder)
@@ -879,14 +885,12 @@ registerPlatesWatcher(function(folder, plate)
     end
     table.clear(sinisterPlateConnections)
 
-    if not folder then
-        for model, record in pairs(registeredPumpkins) do
-            if not model:IsDescendantOf(workspace) then
-                for _, connection in ipairs(record.Connections or {}) do
-                    disconnect(connection)
-                end
-                registeredPumpkins[model] = nil
+    for model, record in pairs(registeredPumpkins) do
+        if not folder or not model:IsDescendantOf(folder) then
+            for _, connection in ipairs(record.Connections or {}) do
+                disconnect(connection)
             end
+            registeredPumpkins[model] = nil
         end
     end
 end)
