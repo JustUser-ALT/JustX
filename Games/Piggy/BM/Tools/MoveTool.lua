@@ -5,7 +5,10 @@ local BMC = require(RS.BuildMode.BuildModeClient)
 local class = debug.getupvalues(BMC.new)[3]
 assert(class, "BuildModeClient class not found")
 
-local step = 0.1
+local Steps = type(Env.JustXPiggyToolSteps) == "table" and Env.JustXPiggyToolSteps or {}
+Env.JustXPiggyToolSteps = Steps
+local step = tonumber(Steps.Move) or 0.1
+Steps.Move = step
 local cachedFunction
 local cachedIndex
 local originalConstant
@@ -25,17 +28,20 @@ end
 local gui = Instance.new("ScreenGui")
 gui.Name = "MoveStepSettings"
 gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = true
+gui.DisplayOrder = 10000
+gui.Enabled = false
 gui.Parent = guiParent
 
 local input = Instance.new("TextBox")
 input.Name = "StepInput"
 input.Size = UDim2.fromOffset(55, 25)
-input.Position = UDim2.new(1, -65, 0.55, 0)
+input.Position = UDim2.new(1, -65, 0.46, 0)
 input.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
 input.BorderSizePixel = 0
 input.TextColor3 = Color3.new(1, 1, 1)
-input.Text = "0.1"
-input.PlaceholderText = "0.1"
+input.Text = tostring(step)
+input.PlaceholderText = tostring(step)
 input.Font = Enum.Font.Gotham
 input.TextSize = 12
 input.ClearTextOnFocus = false
@@ -44,6 +50,18 @@ input.Parent = gui
 local corner = Instance.new("UICorner")
 corner.CornerRadius = UDim.new(0, 5)
 corner.Parent = input
+
+-- Mode-aware visibility and independent saved step.
+local BuildModeFolder = RS:WaitForChild("BuildMode")
+local BuildingMode = require(BuildModeFolder:WaitForChild("BuildingMode"))
+local ChangedEvent = BuildModeFolder:WaitForChild("Events"):WaitForChild("BuildingModeChanged")
+local function UpdateStepVisibility(modeName)
+    gui.Enabled = modeName == "Move"
+end
+local currentMode = BuildingMode:Get()
+local currentModeName = tostring(currentMode):match("([^%.]+)$")
+gui.Enabled = currentModeName == "Move"
+local ModeConnection = ChangedEvent.Event:Connect(UpdateStepVisibility)
 
 -- Поиск Move Tool
 local function findMoveFunction()
@@ -122,6 +140,7 @@ input.FocusLost:Connect(function()
     end
 
     step = math.clamp(value, 0.1, 10)
+    Steps.Move = step
     input.Text = tostring(step)
 
     applyStep()
@@ -145,6 +164,9 @@ local function Cleanup()
     cleaned = true
     if cachedFunction and cachedIndex and originalConstant ~= nil then
         pcall(debug.setconstant, cachedFunction, cachedIndex, originalConstant)
+    end
+    if ModeConnection then
+        pcall(function() ModeConnection:Disconnect() end)
     end
     if gui and gui.Parent then
         pcall(function() gui:Destroy() end)

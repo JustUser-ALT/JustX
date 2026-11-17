@@ -180,7 +180,10 @@ assert(Drawing, "[RotateTest] Drawing API unavailable")
 local BuildModel = workspace:WaitForChild("BuildModel")
 local Camera = workspace.CurrentCamera
 local VERSION = "V1.6"
-local RotationStep = 0.1
+local Steps = type(Env.JustXPiggyToolSteps) == "table" and Env.JustXPiggyToolSteps or {}
+Env.JustXPiggyToolSteps = Steps
+local RotationStep = tonumber(Steps.Rotate) or 0.1
+Steps.Rotate = RotationStep
 local HandleRadius = 13
 local OutlineRadius = 15
 
@@ -205,16 +208,17 @@ StepGui.Name = "JustXRotateStepSettings"
 StepGui.ResetOnSpawn = false
 StepGui.IgnoreGuiInset = true
 StepGui.DisplayOrder = 10000
+StepGui.Enabled = false
 
 local StepInput = Instance.new("TextBox")
 StepInput.Name = "StepInput"
 StepInput.Size = UDim2.fromOffset(55, 25)
-StepInput.Position = UDim2.new(1, -65, 0.52, 0)
+StepInput.Position = UDim2.new(1, -65, 0.46, 0)
 StepInput.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
 StepInput.BorderSizePixel = 0
 StepInput.TextColor3 = Color3.new(1, 1, 1)
-StepInput.Text = "0.1"
-StepInput.PlaceholderText = "0.1"
+StepInput.Text = tostring(RotationStep)
+StepInput.PlaceholderText = tostring(RotationStep)
 StepInput.Font = Enum.Font.Gotham
 StepInput.TextSize = 12
 StepInput.ClearTextOnFocus = false
@@ -240,6 +244,7 @@ StepInput.FocusLost:Connect(function()
     end
 
     RotationStep = math.clamp(value, 0.1, 10)
+    Steps.Rotate = RotationStep
     StepInput.Text = tostring(RotationStep)
 end)
 
@@ -997,6 +1002,11 @@ local function Connect(connection)
     table.insert(Connections, connection)
     return connection
 end
+
+local StepModeConnection = Connect(ChangedEvent.Event:Connect(function(modeName)
+    StepGui.Enabled = modeName == "Rotate"
+end))
+StepGui.Enabled = BuildingMode:Get() == RotateEnum
 
 local SelectedModeName = "rotate tool"
 
