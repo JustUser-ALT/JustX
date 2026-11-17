@@ -245,10 +245,12 @@ for _, object in ipairs(getgc(true)) do
         local toolbar = rawget(object, "Toolbar")
         local buildingModeToolbar = type(toolbar) == "table" and rawget(toolbar, "BuildingModeToolbar")
         local toolbarBuildModeClient = type(toolbar) == "table" and rawget(toolbar, "BuildModeClient")
-        DumpObject("ClientState.BuildModeClient", buildModeClient)
+        -- BuildModeClient is not a direct ClientState field; inspect the nested toolbar reference instead.
         DumpObject("ClientState.Toolbar.BuildModeClient", toolbarBuildModeClient)
         DumpObject("ClientState.Toolbar", toolbar)
         DumpObject("ClientState.Toolbar.BuildingModeToolbar", buildingModeToolbar)
+        local buildingToolbarClient = type(buildingModeToolbar) == "table" and rawget(buildingModeToolbar, "BuildModeClient")
+        DumpObject("ClientState.Toolbar.BuildingModeToolbar.BuildModeClient", buildingToolbarClient)
         break
     end
 end
