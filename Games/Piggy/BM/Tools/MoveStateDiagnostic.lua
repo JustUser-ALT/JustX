@@ -1,61 +1,42 @@
--- Native Move Selection Diagnostic V16 (read-only Main source)
-local Players=game:GetService("Players")
-local gui=Players.LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("BuildModeGui")
+-- Native Move Selection Diagnostic V17 (read-only source inspection)
+local RS=game:GetService("ReplicatedStorage")
+local function log(s) print("[MoveState] "..tostring(s)) end
+local function getSource(target,label)
+ if type(decompile)~="function" then log(label..": decompile unavailable"); return nil end
+ local ok,result=pcall(decompile,target)
+ log(label.." decompile="..tostring(ok).." type="..type(result))
+ if ok and type(result)=="string" then return result end
+ return nil
+end
+log("===== SOURCE INSPECTION V17 =====")
+local gui=game:GetService("Players").LocalPlayer.PlayerGui:FindFirstChild("BuildModeGui")
 local main=gui and gui:FindFirstChild("Main")
-local n,LIMIT=0,100
-local function log(s)
- if n>=LIMIT then return end
- n=n+1
- print("[MoveState] "..tostring(s))
-end
-local function describe(v)
- if typeof(v)=="Instance" then
-  local ok,p=pcall(function() return v:GetFullName() end)
-  return (ok and p or v.Name).." <"..v.ClassName..">"
- end
- return type(v).." "..tostring(v)
-end
-log("===== MAIN SOURCE DIAGNOSTIC V16 =====")
-log("Main="..describe(main))
-if not main or not main:IsA("LocalScript") then log("Main missing"); return end
-if type(getsenv)=="function" then
- local ok,env=pcall(getsenv,main)
- log("getsenv="..tostring(ok))
- if ok and type(env)=="table" then
-  local count=0
-  for k,v in pairs(env) do
-   count=count+1
-   if count<=35 then log("ENV["..tostring(k).."]="..describe(v)) end
-  end
-  log("ENV key count="..count)
- end
-end
-local source
-if type(decompile)=="function" then
- local ok,result=pcall(decompile,main)
- log("decompile="..tostring(ok).." type="..type(result))
- if ok and type(result)=="string" then source=result end
-elseif type(getscriptsource)=="function" then
- local ok,result=pcall(getscriptsource,main)
- log("getscriptsource="..tostring(ok).." type="..type(result))
- if ok and type(result)=="string" then source=result end
-else
- log("No decompile/getscriptsource")
-end
-if source then
+local mainSource=main and getSource(main,"Main")
+if mainSource then
  local lines={}
- for line in string.gmatch(source,"([^\n]+)") do lines[#lines+1]=line end
- log("SOURCE lines="..#lines)
- local shown=0
- for i,line in ipairs(lines) do
-  local low=string.lower(line)
-  if string.find(low,"buildmodeclient") or string.find(low,"clientstate") or string.find(low,":mount")
-   or string.find(low,".new(") or string.find(low,"buildingmodetoolbar") or string.find(low,"renderloop") then
-   log("SRC["..i.."] "..string.sub(line,1,220))
-   shown=shown+1
-   if shown>=35 then break end
+ for line in string.gmatch(mainSource,"([^\n]+)") do lines[#lines+1]=line end
+ log("Main lines="..#lines)
+ for i=1,math.min(#lines,42) do log("MAIN["..i.."] "..string.sub(lines[i],1,220)) end
+end
+local module=RS:FindFirstChild("BuildMode") and RS.BuildMode:FindFirstChild("BuildModeClient")
+if module then
+ local moduleSource=getSource(module,"BuildModeClient module")
+ if moduleSource then
+  local lines={}
+  for line in string.gmatch(moduleSource,"([^\n]+)") do lines[#lines+1]=line end
+  log("BuildModeClient lines="..#lines)
+  local starts={}
+  for i,line in ipairs(lines) do
+   if string.find(line,"function ",1,true) and (string.find(line,"Mount",1,true) or string.find(line,"Destroy",1,true)) then
+    starts[#starts+1]=i
+   end
+  end
+  for _,start in ipairs(starts) do
+   log("---- module around line "..start.." ----")
+   for i=math.max(1,start-2),math.min(#lines,start+22) do log("BC["..i.."] "..string.sub(lines[i],1,220)) end
   end
  end
- if shown==0 then log("No relevant source lines matched") end
+else
+ log("BuildModeClient module missing")
 end
-log("===== END V16 =====")
+log("===== END V17 =====")
