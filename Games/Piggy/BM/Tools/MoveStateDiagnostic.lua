@@ -6,7 +6,7 @@ local Players = game:GetService("Players")
 local gui = Players.LocalPlayer:WaitForChild("PlayerGui"):WaitForChild("BuildModeGui")
 local root = RS:FindFirstChild("BuildMode")
 
-local count, LIMIT = 170, 0
+local count, LIMIT = 0, 170
 local function log(v)
     if count >= LIMIT then return end
     count += 1
