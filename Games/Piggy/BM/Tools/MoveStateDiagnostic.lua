@@ -1,4 +1,4 @@
--- Native Move Selection Diagnostic v3 (read-only)
+-- Native Move Selection Diagnostic v4 (read-only)
 -- Run in ORIGINAL Piggy Build Mode with a block selected and Move handles visible.
 
 local RS = game:GetService("ReplicatedStorage")
@@ -6,7 +6,7 @@ local Players = game:GetService("Players")
 local gui = Players.LocalPlayer:WaitForChild("PlayerGui"):WaitForChild("BuildModeGui")
 local BMC = require(RS:WaitForChild("BuildMode"):WaitForChild("BuildModeClient"))
 
-local count, LIMIT = 0, 56
+local count, LIMIT = 0, 58
 local function log(v)
     if count >= LIMIT then return end
     count += 1
@@ -30,8 +30,8 @@ local function methodTable(obj)
     return type(ix) == "table" and ix or {}
 end
 
-local function inspectFunction(label, fn, maxConstants)
-    log(label .. " = " .. desc(fn))
+local function inspectFunction(label, fn, maxConstants, maxUpvalues)
+    log(label .. "=" .. desc(fn))
     if type(fn) ~= "function" then return end
     if debug and type(debug.getconstants) == "function" then
         local ok, constants = pcall(debug.getconstants, fn)
@@ -39,18 +39,12 @@ local function inspectFunction(label, fn, maxConstants)
             local shown = 0
             for index, value in pairs(constants) do
                 if shown >= maxConstants then break end
-                local t = type(value)
-                if t == "string" or t == "number" or t == "boolean" then
+                if type(value) == "string" then
                     shown += 1
-                    log("  const[" .. tostring(index) .. "] " .. t .. "=" .. tostring(value))
-                elseif t == "function" then
-                    shown += 1
-                    log("  const[" .. tostring(index) .. "] function")
+                    log("  C" .. tostring(index) .. "=" .. value)
                 end
             end
-            log("  primitive constants shown=" .. shown)
-        else
-            log("  constants unavailable")
+            log("  strings=" .. shown)
         end
     end
     if debug and type(debug.getupvalues) == "function" then
@@ -58,15 +52,15 @@ local function inspectFunction(label, fn, maxConstants)
         if ok and type(values) == "table" then
             local shown = 0
             for index, value in pairs(values) do
-                if shown >= 12 then break end
+                if shown >= maxUpvalues then break end
                 shown += 1
-                log("  upvalue[" .. tostring(index) .. "]=" .. desc(value))
+                log("  U" .. tostring(index) .. "=" .. desc(value))
             end
         end
     end
 end
 
-log("===== SELECTION FLOW DIAGNOSTIC V3 =====")
+log("===== SELECTION FLOW DIAGNOSTIC V4 =====")
 log("GUI=" .. gui:GetFullName())
 if type(getgc) ~= "function" or not debug or type(debug.getupvalues) ~= "function" then
     log("Missing getgc/debug"); return
@@ -98,20 +92,27 @@ log("MoveHandles._Adornee=" .. desc(type(handles) == "table" and rawget(handles,
 local box = rawget(client, "BoxSelection")
 log("BoxSelection._Adornee=" .. desc(type(box) == "table" and rawget(box, "_Adornee")))
 
-local methods = methodTable(client)
-local constructor = methods.new
-inspectFunction("BuildModeClient.new", constructor, 28)
+local clientMethods = methodTable(client)
+inspectFunction("BuildModeClient.Mount", clientMethods.Mount, 16, 8)
+inspectFunction("BuildModeClient.BindBuildActions", clientMethods.BindBuildActions, 16, 8)
+inspectFunction("BuildModeClient.PlaceBlockAction", clientMethods.PlaceBlockAction, 16, 8)
 
-local upOk, values = pcall(debug.getupvalues, constructor)
-if upOk and type(values) == "table" then
-    local candidate = values[10]
-    if type(candidate) == "function" then
-        inspectFunction("BuildModeClient.new upvalue[10]", candidate, 16)
+local buildInput = rawget(client, "BuildInput")
+log("BuildInput=" .. desc(buildInput))
+if type(buildInput) == "table" then
+    local names, n = {}, 0
+    for k, v in pairs(buildInput) do
+        n += 1
+        if n <= 10 then names[#names + 1] = tostring(k) .. ":" .. typeof(v) end
+    end
+    log("BuildInput fields=" .. table.concat(names, " | "))
+    local biMethods = methodTable(buildInput)
+    local shown = 0
+    for name, fn in pairs(biMethods) do
+        if type(fn) == "function" and shown < 4 then
+            shown += 1
+            log("BuildInput method=" .. tostring(name))
+        end
     end
 end
-
-local moveMethods = methodTable(handles)
-inspectFunction("MoveHandles.SetAdornee", moveMethods.SetAdornee, 16)
-local boxMethods = methodTable(box)
-inspectFunction("BoxSelection._AdorneeChanged", boxMethods._AdorneeChanged, 16)
 log("===== END =====")
