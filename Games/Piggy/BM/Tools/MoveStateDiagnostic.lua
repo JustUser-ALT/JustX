@@ -1,92 +1,71 @@
--- Native Move Selection Diagnostic v14 (read-only)
-local RS = game:GetService("ReplicatedStorage")
-local root = RS:WaitForChild("BuildMode")
-local count, LIMIT = 0, 100
+-- Native Move Selection Diagnostic V15 (read-only, Main environment)
+local RS=game:GetService("ReplicatedStorage")
+local root=RS:WaitForChild("BuildMode")
+local Players=game:GetService("Players")
+local count,LIMIT=0,100
 local function log(s)
-    if count >= LIMIT then return end
-    count = count + 1
-    print("[MoveState] " .. tostring(s))
+    if count>=LIMIT then return end
+    count=count+1
+    print("[MoveState] "..tostring(s))
 end
-local function raw(t,k)
-    if type(t) ~= "table" then return nil end
-    local ok,v = pcall(rawget,t,k)
-    return ok and v or nil
-end
-local function describe(v)
-    if typeof(v) == "Instance" then
-        local ok,n = pcall(function() return v:GetFullName() end)
-        return (ok and n or v.Name) .. " <" .. v.ClassName .. ">"
+local function desc(v)
+    if typeof(v)=="Instance" then
+        local ok,n=pcall(function() return v:GetFullName() end)
+        return (ok and n or v.Name).." <"..v.ClassName..">"
     end
-    return type(v)
+    if type(v)=="table" then return "table" end
+    return type(v).." "..tostring(v)
 end
-local function dumpTable(label,t,depth)
-    if type(t) ~= "table" then return end
-    local n = 0
+local function inspect(label,t)
+    if type(t)~="table" then log(label.." not table: "..desc(t)); return end
+    local keys={}
     for k,v in pairs(t) do
-        n = n + 1
-        if n > 24 then log(label .. " ...more keys"); break end
-        local key = tostring(k)
-        if #key > 45 then key = string.sub(key,1,45) end
-        log(label .. "[" .. key .. "]=" .. describe(v))
-        if depth > 0 and type(v) == "table" then
-            local hits = {}
-            for _, wanted in ipairs({"SelectedBlock","MoveHandles","BoxSelection","Toolbar","BuildModeClient","BuildingModeToolbar","Placement","ClientState"}) do
-                local x = raw(v,wanted)
-                if x ~= nil then hits[#hits+1] = wanted .. "=" .. describe(x) end
+        local s=tostring(k)
+        if string.find(string.lower(s),"build") or string.find(string.lower(s),"client")
+        or string.find(string.lower(s),"state") or string.find(string.lower(s),"tool")
+        or string.find(string.lower(s),"select") or string.find(string.lower(s),"mode")
+        or string.find(string.lower(s),"render") then
+            keys[#keys+1]={k,v}
+        end
+    end
+    table.sort(keys,function(a,b) return tostring(a[1])<tostring(b[1]) end)
+    for _,pair in ipairs(keys) do
+        log(label.."."..tostring(pair[1]).."="..desc(pair[2]))
+        if type(pair[2])=="table" then
+            for _,wanted in ipairs({"SelectedBlock","MoveHandles","BoxSelection","Toolbar","BuildingModeToolbar","Placement","ClientState"}) do
+                local ok,v=pcall(function() return rawget(pair[2],wanted) end)
+                if ok and v~=nil then log(label.."."..tostring(pair[1]).."."..wanted.."="..desc(v)) end
             end
-            if #hits > 0 then log(label .. "[" .. key .. "] MATCH " .. table.concat(hits," ; ")) end
         end
     end
 end
-local function inspectFunction(label,fn)
-    if type(fn) ~= "function" then return end
-    if not debug or type(debug.getupvalues) ~= "function" then
-        log(label .. " getupvalues unavailable"); return
-    end
-    local ok,ups = pcall(debug.getupvalues,fn)
-    if not ok or type(ups) ~= "table" then log(label .. " upvalues failed"); return end
-    for i,v in pairs(ups) do
-        log(label .. " U" .. tostring(i) .. "=" .. describe(v))
-        if type(v) == "table" then dumpTable(label .. " U" .. tostring(i),v,1) end
-    end
-    if debug.getconstants then
-        local cok,cs = pcall(debug.getconstants,fn)
-        if cok and type(cs) == "table" then
-            local n=0
-            for i,c in pairs(cs) do
-                if type(c)=="string" and (string.find(c,"Selected") or string.find(c,"Toolbar") or string.find(c,"Move") or string.find(c,"Mount") or string.find(c,"BuildMode")) then
-                    log(label .. " CONST[" .. tostring(i) .. "]=" .. c)
-                    n=n+1
-                    if n>=18 then break end
-                end
-            end
-        else
-            log(label .. " constants unavailable")
-        end
-    end
-end
-log("===== TARGETED CONSTRUCTOR DIAGNOSTIC V14 =====")
-local ok,client = pcall(require,root:WaitForChild("BuildModeClient"))
-log("BuildModeClient require=" .. tostring(ok) .. " result=" .. describe(client))
-if ok and type(client)=="table" then
-    for _,name in ipairs({"new","Mount","BindBuildActions","PlaceBlockAction","Destroy"}) do
-        local fn=raw(client,name)
-        log("BuildModeClient." .. name .. "=" .. describe(fn))
-        if name=="new" or name=="Mount" then inspectFunction("BuildModeClient." .. name,fn) end
-    end
-end
-local gui=game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("BuildModeGui")
-log("GUI=" .. describe(gui))
+log("===== MAIN ENVIRONMENT DIAGNOSTIC V15 =====")
+local gui=Players.LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("BuildModeGui")
 local main=gui and gui:FindFirstChild("Main")
-log("Main=" .. describe(main))
+log("GUI Main="..desc(main))
 if main and main:IsA("LocalScript") then
-    log("Main Disabled=" .. tostring(main.Disabled))
-    if getsenv then
-        local eok,env=pcall(getsenv,main)
-        log("Main getsenv=" .. tostring(eok) .. " " .. describe(env))
-        if eok and type(env)=="table" then dumpTable("Main ENV",env,0) end
+    log("Main Disabled="..tostring(main.Disabled))
+    if type(getsenv)=="function" then
+        local ok,env=pcall(getsenv,main)
+        log("getsenv success="..tostring(ok).." env="..desc(env))
+        if ok then inspect("ENV",env) end
     else
         log("getsenv unavailable")
     end
+else
+    log("Main LocalScript missing")
 end
-log("===== END V14 =====")
+local ok,client=pcall(require,root:WaitForChild("BuildModeClient"))
+if ok and type(client)=="table" and type(client.new)=="function" and debug and type(debug.getupvalues)=="function" then
+    local uok,ups=pcall(debug.getupvalues,client.new)
+    if uok and type(ups)=="table" then
+        for i=16,33 do
+            local v=ups[i]
+            if v~=nil then
+                log("BuildModeClient.new U"..i.."="..desc(v))
+                if type(v)=="table" then inspect("U"..i,v) end
+            end
+        end
+    else log("constructor upvalues unavailable") end
+end
+log("===== END V15 =====")
