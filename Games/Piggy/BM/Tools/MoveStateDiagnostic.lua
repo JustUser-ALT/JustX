@@ -1,8 +1,8 @@
--- Native Move Selection Diagnostic V23 (compare LocalScript and executor globals, read-only)
+-- Native Move Selection Diagnostic V24 (inspect actual Main-owned BuildModeClient, read-only)
 local Players=game:GetService("Players")
 local function log(s) print("[MoveState] "..tostring(s)) end
-local function safe(fn)
- local ok,value=pcall(fn)
+local function safeGet(obj,key)
+ local ok,value=pcall(function() return obj[key] end)
  return ok,value
 end
 local function desc(v)
@@ -10,52 +10,52 @@ local function desc(v)
  local t=typeof(v)
  if t=="Instance" then
   local ok,path=pcall(function() return v:GetFullName() end)
-  return "Instance "..(ok and path or v.Name)
+  return "Instance "..(ok and path or v.Name).." <"..v.ClassName..">"
  end
  return t
 end
-log("===== GLOBAL ENVIRONMENT DIAGNOSTIC V23 =====")
-local main=Players.LocalPlayer:WaitForChild("PlayerGui"):WaitForChild("BuildModeGui"):FindFirstChild("Main")
-log("Main="..desc(main))
-local env
-if type(getsenv)=="function" and main then
- local ok,value=safe(function() return getsenv(main) end)
- log("getsenv(Main) ok="..tostring(ok).." type="..desc(value))
- if ok then env=value end
-else
- log("getsenv unavailable")
+log("===== LIVE MAIN-OWNED CLIENT STATE V24 =====")
+local player=Players.LocalPlayer
+local gui=player:WaitForChild("PlayerGui"):WaitForChild("BuildModeGui")
+local main=gui:FindFirstChild("Main")
+if not main or type(getsenv)~="function" then
+ log("STOP: Main or getsenv unavailable")
+ return
 end
-local function inspect(label,tab)
- log(label.." type="..desc(tab))
- if type(tab)=="table" then
-  local ok,value=safe(function() return tab.BuildModeClient end)
-  log(label..".BuildModeClient read="..tostring(ok).." value="..desc(value))
-  local count=0
-  for k,v in pairs(tab) do
-   local s=tostring(k)
-   if string.find(string.lower(s),"build",1,true) or string.find(string.lower(s),"client",1,true) then
-    count=count+1
-    log(label.." key "..s.."="..desc(v))
-   end
-  end
-  log(label.." matching keys="..count)
+local okEnv,env=pcall(getsenv,main)
+log("getsenv(Main) ok="..tostring(okEnv).." type="..desc(env))
+if not okEnv or type(env)~="table" then return end
+local okG,g=pcall(function() return env._G end)
+log("MainEnv._G ok="..tostring(okG).." type="..desc(g))
+if not okG or type(g)~="table" then return end
+local okState,state=pcall(function() return g.BuildModeClient end)
+log("MainEnv._G.BuildModeClient ok="..tostring(okState).." type="..desc(state))
+if not okState or type(state)~="table" then
+ log("STOP: live state unavailable")
+ return
+end
+local keys={}
+for k,v in pairs(state) do keys[#keys+1]=tostring(k).."="..desc(v) end
+table.sort(keys)
+log("RAW STATE FIELDS count="..#keys)
+for _,entry in ipairs(keys) do log(entry) end
+for _,name in ipairs({"SelectedBlock","MoveHandles","BoxSelection","ResizeHandles","Placement","Toolbar","EditorMode","ScreenGui"}) do
+ local ok,value=safeGet(state,name)
+ log("FIELD "..name.." read="..tostring(ok).." value="..desc(value))
+ if (name=="MoveHandles" or name=="BoxSelection" or name=="ResizeHandles") and ok and value~=nil then
+  local okA,a=safeGet(value,"_Adornee")
+  log(name.."._Adornee read="..tostring(okA).." value="..desc(a))
  end
 end
-if type(env)=="table" then
- local ok,scriptG=safe(function() return env._G end)
- log("MainEnv._G read="..tostring(ok).." value="..desc(scriptG))
- inspect("MainEnv",env)
- if ok then inspect("MainEnv._G",scriptG) end
- local ok2,v16=safe(function() return env.v16 end)
- log("MainEnv.v16 read="..tostring(ok2).." value="..desc(v16))
+local okToolbar,toolbar=safeGet(state,"Toolbar")
+if okToolbar and toolbar~=nil then
+ local okInner,inner=safeGet(toolbar,"BuildingModeToolbar")
+ log("Toolbar.BuildingModeToolbar read="..tostring(okInner).." value="..desc(inner))
+ if okInner and inner~=nil then
+  local okOwner,owner=safeGet(inner,"BuildModeClient")
+  log("Toolbar.BuildingModeToolbar.BuildModeClient read="..tostring(okOwner).." value="..desc(owner))
+  log("GLOBAL_EQUALS_TOOLBAR_OWNER "..tostring(owner==state))
+ end
 end
-inspect("Executor _G",_G)
-if type(getgenv)=="function" then
- local ok,g=safe(function() return getgenv() end)
- log("getgenv() ok="..tostring(ok).." value="..desc(g))
- if ok then inspect("getgenv()",g) end
-else
- log("getgenv unavailable")
-end
-log("No properties assigned; no methods called")
-log("===== END V23 =====")
+log("READ-ONLY: no properties assigned and no methods called")
+log("===== END V24 =====")
