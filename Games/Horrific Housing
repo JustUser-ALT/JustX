@@ -658,10 +658,6 @@ local function getPumpkinComponents(model)
         end
     end
 
-    if not prompt then
-        prompt = findNamedDescendant(model, "ProximityPrompt", "ProximityPrompt")
-    end
-
     if not icon and billboard then
         icon = findNamedDescendant(billboard, "Icon")
     end
