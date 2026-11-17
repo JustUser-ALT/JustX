@@ -1,71 +1,61 @@
--- Native Move Selection Diagnostic V15 (read-only, Main environment)
-local RS=game:GetService("ReplicatedStorage")
-local root=RS:WaitForChild("BuildMode")
+-- Native Move Selection Diagnostic V16 (read-only Main source)
 local Players=game:GetService("Players")
-local count,LIMIT=0,100
-local function log(s)
-    if count>=LIMIT then return end
-    count=count+1
-    print("[MoveState] "..tostring(s))
-end
-local function desc(v)
-    if typeof(v)=="Instance" then
-        local ok,n=pcall(function() return v:GetFullName() end)
-        return (ok and n or v.Name).." <"..v.ClassName..">"
-    end
-    if type(v)=="table" then return "table" end
-    return type(v).." "..tostring(v)
-end
-local function inspect(label,t)
-    if type(t)~="table" then log(label.." not table: "..desc(t)); return end
-    local keys={}
-    for k,v in pairs(t) do
-        local s=tostring(k)
-        if string.find(string.lower(s),"build") or string.find(string.lower(s),"client")
-        or string.find(string.lower(s),"state") or string.find(string.lower(s),"tool")
-        or string.find(string.lower(s),"select") or string.find(string.lower(s),"mode")
-        or string.find(string.lower(s),"render") then
-            keys[#keys+1]={k,v}
-        end
-    end
-    table.sort(keys,function(a,b) return tostring(a[1])<tostring(b[1]) end)
-    for _,pair in ipairs(keys) do
-        log(label.."."..tostring(pair[1]).."="..desc(pair[2]))
-        if type(pair[2])=="table" then
-            for _,wanted in ipairs({"SelectedBlock","MoveHandles","BoxSelection","Toolbar","BuildingModeToolbar","Placement","ClientState"}) do
-                local ok,v=pcall(function() return rawget(pair[2],wanted) end)
-                if ok and v~=nil then log(label.."."..tostring(pair[1]).."."..wanted.."="..desc(v)) end
-            end
-        end
-    end
-end
-log("===== MAIN ENVIRONMENT DIAGNOSTIC V15 =====")
 local gui=Players.LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("BuildModeGui")
 local main=gui and gui:FindFirstChild("Main")
-log("GUI Main="..desc(main))
-if main and main:IsA("LocalScript") then
-    log("Main Disabled="..tostring(main.Disabled))
-    if type(getsenv)=="function" then
-        local ok,env=pcall(getsenv,main)
-        log("getsenv success="..tostring(ok).." env="..desc(env))
-        if ok then inspect("ENV",env) end
-    else
-        log("getsenv unavailable")
-    end
+local n,LIMIT=0,100
+local function log(s)
+ if n>=LIMIT then return end
+ n=n+1
+ print("[MoveState] "..tostring(s))
+end
+local function describe(v)
+ if typeof(v)=="Instance" then
+  local ok,p=pcall(function() return v:GetFullName() end)
+  return (ok and p or v.Name).." <"..v.ClassName..">"
+ end
+ return type(v).." "..tostring(v)
+end
+log("===== MAIN SOURCE DIAGNOSTIC V16 =====")
+log("Main="..describe(main))
+if not main or not main:IsA("LocalScript") then log("Main missing"); return end
+if type(getsenv)=="function" then
+ local ok,env=pcall(getsenv,main)
+ log("getsenv="..tostring(ok))
+ if ok and type(env)=="table" then
+  local count=0
+  for k,v in pairs(env) do
+   count=count+1
+   if count<=35 then log("ENV["..tostring(k).."]="..describe(v)) end
+  end
+  log("ENV key count="..count)
+ end
+end
+local source
+if type(decompile)=="function" then
+ local ok,result=pcall(decompile,main)
+ log("decompile="..tostring(ok).." type="..type(result))
+ if ok and type(result)=="string" then source=result end
+elseif type(getscriptsource)=="function" then
+ local ok,result=pcall(getscriptsource,main)
+ log("getscriptsource="..tostring(ok).." type="..type(result))
+ if ok and type(result)=="string" then source=result end
 else
-    log("Main LocalScript missing")
+ log("No decompile/getscriptsource")
 end
-local ok,client=pcall(require,root:WaitForChild("BuildModeClient"))
-if ok and type(client)=="table" and type(client.new)=="function" and debug and type(debug.getupvalues)=="function" then
-    local uok,ups=pcall(debug.getupvalues,client.new)
-    if uok and type(ups)=="table" then
-        for i=16,33 do
-            local v=ups[i]
-            if v~=nil then
-                log("BuildModeClient.new U"..i.."="..desc(v))
-                if type(v)=="table" then inspect("U"..i,v) end
-            end
-        end
-    else log("constructor upvalues unavailable") end
+if source then
+ local lines={}
+ for line in string.gmatch(source,"([^\n]+)") do lines[#lines+1]=line end
+ log("SOURCE lines="..#lines)
+ local shown=0
+ for i,line in ipairs(lines) do
+  local low=string.lower(line)
+  if string.find(low,"buildmodeclient") or string.find(low,"clientstate") or string.find(low,":mount")
+   or string.find(low,".new(") or string.find(low,"buildingmodetoolbar") or string.find(low,"renderloop") then
+   log("SRC["..i.."] "..string.sub(line,1,220))
+   shown=shown+1
+   if shown>=35 then break end
+  end
+ end
+ if shown==0 then log("No relevant source lines matched") end
 end
-log("===== END V15 =====")
+log("===== END V16 =====")
