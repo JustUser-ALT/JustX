@@ -146,7 +146,7 @@ local DARK_GOLD = Color3.fromRGB(135, 99, 32)
 local Camera = workspace.CurrentCamera
 local Cleaned = false
 local Connections = {}
-local CaptureActionName = "JustX_CopyHandleCapture"
+local CaptureActionName = "JustX_CloneHandleCapture"
 
 local CopyMode = {
     Initialized = false,
@@ -233,6 +233,7 @@ pcall(function()
         GuiParent = gethui()
     end
 end)
+StepGui.Enabled = false
 StepGui.Parent = GuiParent or game:GetService("CoreGui")
 
 StepInput.FocusLost:Connect(function()
@@ -598,7 +599,7 @@ function CopyMode:Init(clientState)
     self.Outline:SetAdornee(nil)
 
     self.Initialized = true
-    print("[CloneTool] CopyMode initialized")
+    print("[CloneTool] Clone mode initialized")
 end
 
 function CopyMode:Enter(clientState)
@@ -609,7 +610,7 @@ function CopyMode:Enter(clientState)
     self.Moving = false
     HideHandles()
     self.Outline:SetAdornee(nil)
-    print("[CloneTool] CopyMode entered")
+    print("[CloneTool] Clone mode entered")
 end
 
 function CopyMode:Exit()
@@ -623,7 +624,7 @@ function CopyMode:Exit()
     self.Moving = false
     HideHandles()
     if self.Outline then self.Outline:SetAdornee(nil) end
-    print("[CloneTool] CopyMode exited")
+    print("[CloneTool] Clone mode exited")
 end
 
 function CopyMode:Update(dt, clientState)
@@ -741,7 +742,7 @@ function CopyMode:Destroy()
 end
 
 local PreviousRenderMode = rawget(RenderModes, "Clone")
-RenderModes.Copy = CopyMode
+RenderModes.Clone = CopyMode
 CopyMode:Init(ClientState)
 
 --==================================================
@@ -783,7 +784,7 @@ local function Connect(connection)
 end
 
 Connect(Button.Activated:Connect(function()
-    ShowHint:Fire("Selected copy tool")
+    ShowHint:Fire("Selected clone tool")
     BuildingMode:SetMode(CopyEnum)
     Frame.Visible = false
     CAS:UnbindAction("pick_building_mode")
@@ -865,6 +866,6 @@ print("================================")
 print("[CloneTool] Loaded")
 print("[CloneTool] Toolbar button: READY")
 print("[CloneTool] Gold hover outline: READY")
-print("[CloneTool] Copy + CommitMove + CommitResize: READY")
+print("[CloneTool] Clone + CommitMove + CommitResize: READY")
 print("[CloneTool] Clone handoff to native Move: READY")
 print("================================")
