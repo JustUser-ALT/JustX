@@ -161,5 +161,71 @@ for _, object in ipairs(getgc(true)) do
     end
 end
 
+
+local function DumpObject(label, object)
+    print("\\n========== " .. label .. " ==========")
+    if type(object) ~= "table" then
+        print("[MoveState] Not a table: " .. Describe(object))
+        return
+    end
+
+    local count = 0
+    for key, value in pairs(object) do
+        count += 1
+        print("[MoveState] raw ." .. tostring(key) .. " = " .. Describe(value))
+        if type(value) == "function" then
+            local name = tostring(key):lower()
+            if name:find("select") or name:find("move") or name:find("block")
+                or name:find("ador") or name:find("handle") or name:find("set")
+                or name:find("update") or name:find("attach") or name:find("mode") then
+                DumpFunction(label .. "." .. tostring(key), value)
+            end
+        end
+        if count >= 50 then
+            print("[MoveState] raw entries truncated")
+            break
+        end
+    end
+
+    local mt = getmetatable(object)
+    print("[MoveState] metatable = " .. Describe(mt))
+    if type(mt) == "table" then
+        local index = rawget(mt, "__index")
+        print("[MoveState] metatable.__index = " .. Describe(index))
+        if type(index) == "table" then
+            local methodCount = 0
+            for key, value in pairs(index) do
+                if type(value) == "function" then
+                    local name = tostring(key):lower()
+                    if name:find("select") or name:find("move") or name:find("block")
+                        or name:find("ador") or name:find("handle") or name:find("set")
+                        or name:find("update") or name:find("attach") or name:find("mode") then
+                        methodCount += 1
+                        print("[MoveState] method " .. tostring(key))
+                        if methodCount <= 10 then
+                            DumpFunction(label .. "." .. tostring(key), value)
+                        end
+                    end
+                end
+            end
+            print("[MoveState] relevant metatable method count: " .. methodCount)
+        elseif type(index) == "function" then
+            DumpFunction(label .. ".__index", index)
+        end
+    end
+end
+
+for _, object in ipairs(getgc(true)) do
+    if type(object) == "table" and getmetatable(object) == class then
+        local buildModeClient = rawget(object, "BuildModeClient")
+        local toolbar = rawget(object, "Toolbar")
+        local buildingModeToolbar = type(toolbar) == "table" and rawget(toolbar, "BuildingModeToolbar")
+        DumpObject("ClientState.BuildModeClient", buildModeClient)
+        DumpObject("ClientState.Toolbar", toolbar)
+        DumpObject("ClientState.Toolbar.BuildingModeToolbar", buildingModeToolbar)
+        break
+    end
+end
+
 print("\n[MoveState] ClientState instances found: " .. found)
 print("========== END MOVE STATE DIAGNOSTIC ==========")
