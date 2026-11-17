@@ -99,6 +99,38 @@ end
 log("BuildModeClient fields=" .. table.concat(keys, " | "))
 
 inspectMethods("BuildModeClient", client)
+local constructor = methods(client).new
+if type(constructor) == "function" then
+    log("BuildModeClient.new string constants:")
+    if debug and type(debug.getconstants) == "function" then
+        local ok, constants = pcall(debug.getconstants, constructor)
+        if ok and type(constants) == "table" then
+            local shown = 0
+            for index, value in ipairs(constants) do
+                if type(value) == "string" and shown < 24 then
+                    shown += 1
+                    log("  #" .. index .. " = " .. value)
+                end
+            end
+            log("  string constants shown=" .. shown)
+        else
+            log("  constants unavailable")
+        end
+    end
+    if debug and type(debug.getupvalues) == "function" then
+        local ok, values = pcall(debug.getupvalues, constructor)
+        if ok and type(values) == "table" then
+            local shown = 0
+            log("BuildModeClient.new upvalues:")
+            for index, value in pairs(values) do
+                if shown < 12 then
+                    shown += 1
+                    log("  [" .. tostring(index) .. "] " .. desc(value))
+                end
+            end
+        end
+    end
+end
 inspectMethods("MoveHandles", handles)
 inspectMethods("BoxSelection", box)
 log("===== END =====")
