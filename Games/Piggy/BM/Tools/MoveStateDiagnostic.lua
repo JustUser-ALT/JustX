@@ -43,7 +43,7 @@ local function inspectMethods(label, obj)
                 if ok and type(constants) == "table" then
                     local hits, shown = {}, 0
                     for _, value in pairs(constants) do
-                        if type(value) == "string" and value:match("SelectedBlock|Adornee|MoveHandles|BoxSelection|Selection|SetAdornee|MouseDrag") then
+                        if type(value) == "string" and (value:find("SelectedBlock", 1, true) or value:find("Adornee", 1, true) or value:find("MoveHandles", 1, true) or value:find("BoxSelection", 1, true) or value:find("Selection", 1, true) or value:find("SetAdornee", 1, true) or value:find("MouseDrag", 1, true)) then
                             if shown < 4 then hits[#hits + 1] = value; shown += 1 end
                         end
                     end
