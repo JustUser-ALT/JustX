@@ -1,64 +1,68 @@
--- Native Move Commit Diagnostic V27 (read-only)
+-- Native Move Server Validation Diagnostic V28 (read-only)
 local RS=game:GetService("ReplicatedStorage")
 local function log(s) print("[MoveState] "..tostring(s)) end
-local function decomp(obj)
+local function src(obj)
  if type(decompile)~="function" then return nil end
  local ok,s=pcall(decompile,obj)
  if ok and type(s)=="string" then return s end
  return nil
 end
-local function linesOf(s)
- local t={}
- if type(s)=="string" then
-  for line in string.gmatch(s,"([^\n]+)") do t[#t+1]=line end
- end
- return t
-end
-local function dumpMatches(label,obj,terms,radius)
+local function dump(label,obj,terms,radius)
  log("===== "..label.." =====")
- local s=decomp(obj)
- if not s then log("DECOMPILE UNAVAILABLE"); return end
- local t=linesOf(s)
+ if not obj then log("OBJECT MISSING"); return end
+ local s=src(obj)
+ if not s then log("DECOMPILE UNAVAILABLE "..obj:GetFullName()); return end
+ local t={}
+ for line in string.gmatch(s,"([^\n]+)") do t[#t+1]=line end
  log("SOURCE LINES="..#t)
- local found={}
+ local matches={}
  for i,line in ipairs(t) do
   for _,term in ipairs(terms) do
-   if string.find(line,term,1,true) then found[#found+1]=i; break end
+   if string.find(line,term,1,true) then matches[#matches+1]=i; break end
   end
  end
- log("MATCHES="..#found)
+ log("MATCHES="..#matches)
  local shown={}
- for _,n in ipairs(found) do
-  local a=math.max(1,n-radius)
-  local b=math.min(#t,n+radius)
-  for i=a,b do
-   if not shown[i] then
-    shown[i]=true
-    log("L"..i.." "..string.sub(t[i],1,300))
+ for _,n in ipairs(matches) do
+  for i=math.max(1,n-radius),math.min(#t,n+radius) do
+   if not shown[i] then shown[i]=true; log("L"..i.." "..string.sub(t[i],1,280)) end
+  end
+ end
+end
+local bm=RS:FindFirstChild("BuildMode")
+local bc=bm and bm:FindFirstChild("BuildModeClient")
+dump("CLIENT LINK AND CLONE FLOW",bc,{"UpdateBlockLink","SelectedBlock","SetMode"},3)
+dump("BUILD MODE PLACEMENT",bm and bm:FindFirstChild("Placement"),{"CommitMove","CommitResize","SelectedBlock","PivotTo"},5)
+dump("BUILD MODE PLACEMENT LOGIC",bm and bm:FindFirstChild("PlacementLogic"),{"CommitMove","CommitResize","SelectedBlock","PivotTo"},5)
+dump("REPLICATED PLACEMENT",RS:FindFirstChild("Modules") and RS.Modules:FindFirstChild("Placement"),{"CommitMove","CommitResize","PivotTo","BuildModel"},5)
+log("===== SERVER SCRIPT REMOTE REFERENCES =====")
+local roots={}
+for _,name in ipairs({"ServerScriptService","ServerStorage"}) do
+ local root=game:GetService(name)
+ if root then roots[#roots+1]=root end
+end
+local scanned,matched=0,0
+for _,root in ipairs(roots) do
+ for _,obj in ipairs(root:GetDescendants()) do
+  if obj:IsA("Script") or obj:IsA("ModuleScript") then
+   scanned=scanned+1
+   local s=src(obj)
+   if s and (string.find(s,"CommitMove",1,true) or string.find(s,"RequestRealDimensions",1,true)) then
+    matched=matched+1
+    log("SERVER MATCH "..obj:GetFullName())
+    local t={}
+    for line in string.gmatch(s,"([^\n]+)") do t[#t+1]=line end
+    local shown={}
+    for i,line in ipairs(t) do
+     if string.find(line,"CommitMove",1,true) or string.find(line,"RequestRealDimensions",1,true) then
+      for j=math.max(1,i-5),math.min(#t,i+9) do
+       if not shown[j] then shown[j]=true; log("L"..j.." "..string.sub(t[j],1,260)) end
+      end
+     end
+    end
    end
   end
  end
 end
-local function pathOf(obj)
- local ok,p=pcall(function() return obj:GetFullName() end)
- return ok and p or obj.Name
-end
-local bm=RS:FindFirstChild("BuildMode")
-local bc=bm and bm:FindFirstChild("BuildModeClient")
-dumpMatches("CLIENT COMMIT AND SELECTION REFERENCES",bc,{"CommitMove","RequestRealDimensions","SelectedBlock","PlaceBlockAction"},4)
-log("===== RELEVANT REMOTE INSTANCES =====")
-local count=0
-for _,obj in ipairs(RS:GetDescendants()) do
- if obj.Name=="CommitMove" or obj.Name=="RequestRealDimensions" or string.find(obj.Name,"Commit",1,true) then
-  count=count+1
-  log(pathOf(obj).." <"..obj.ClassName..">")
- end
-end
-log("REMOTE MATCH COUNT="..count)
-log("===== MODULES WITH COMMITMOVE NAME =====")
-for _,obj in ipairs(RS:GetDescendants()) do
- if obj:IsA("ModuleScript") and (string.find(string.lower(obj.Name),"move",1,true) or string.find(string.lower(obj.Name),"placement",1,true)) then
-  log(pathOf(obj).." <ModuleScript>")
- end
-end
-log("===== END V27 =====")
+log("SERVER SCANNED="..scanned.." MATCHED="..matched)
+log("===== END V28 =====")
