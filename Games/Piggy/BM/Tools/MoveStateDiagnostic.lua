@@ -1,10 +1,12 @@
--- Native Move Selection Diagnostic v10 (read-only)
--- Broad GC scan; all object fields are inspected without invoking __index.
+-- Native Move Selection Diagnostic v11 (read-only)
+-- Uses known GUI/ReplicatedStorage references and debug upvalues; no getgc required.
 
+local RS = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local gui = Players.LocalPlayer:WaitForChild("PlayerGui"):WaitForChild("BuildModeGui")
+local root = RS:FindFirstChild("BuildMode")
 
-local count, LIMIT = 0, 160
+local count, LIMIT = 170, 0
 local function log(v)
     if count >= LIMIT then return end
     count += 1
@@ -26,58 +28,87 @@ local function desc(v)
     return tostring(v) .. " <" .. typeof(v) .. ">"
 end
 
-local function keys(t, limit)
-    local out, n = {}, 0
-    if type(t) == "table" then
-        for k, v in pairs(t) do
-            n += 1
-            if n <= limit then
-                out[#out + 1] = tostring(k) .. ":" .. typeof(v)
-            end
+local function listChildren(parent, label, depth)
+    if not parent then return end
+    for _, child in ipairs(parent:GetChildren()) do
+        if depth == 0 or string.find(string.lower(child.Name), "buildmode", 1, true)
+            or string.find(string.lower(child.Name), "toolbar", 1, true)
+            or string.find(string.lower(child.Name), "client", 1, true) then
+            log(label .. child.Name .. " <" .. child.ClassName .. ">")
         end
+        if depth > 0 then listChildren(child, label .. child.Name .. ".", depth - 1) end
     end
-    return #out > 0 and table.concat(out, " | ") or "(no raw keys)"
 end
 
-log("===== CLIENTSTATE GC SCAN V10 =====")
-log("GUI=" .. gui:GetFullName())
-
-if not debug or type(debug.getgc) ~= "function" then
-    log("debug.getgc unavailable")
-else
-    local ok, objects = pcall(debug.getgc, true)
-    log("getgc ok=" .. tostring(ok) .. " type=" .. typeof(objects))
-    if ok and type(objects) == "table" then
-        local total, candidates = 0, 0
-        for _, obj in pairs(objects) do
-            if type(obj) == "table" then
-                total += 1
-                local mt = getmetatable(obj)
-                local idx = type(mt) == "table" and raw(mt, "__index") or nil
-                local hasSelected = raw(obj, "SelectedBlock") ~= nil
-                local hasMove = raw(obj, "MoveHandles") ~= nil
-                local hasToolbar = raw(obj, "Toolbar") ~= nil
-                local hasBox = raw(obj, "BoxSelection") ~= nil
-                local indexHasSelected = type(idx) == "table" and raw(idx, "SelectedBlock") ~= nil
-                local score = (hasSelected and 1 or 0) + (hasMove and 1 or 0)
-                    + (hasToolbar and 1 or 0) + (hasBox and 1 or 0)
-                    + (indexHasSelected and 1 or 0)
-                if score > 0 then
-                    candidates += 1
-                    log("CANDIDATE #" .. candidates .. " score=" .. score
-                        .. " rawKeys={" .. keys(obj, 18) .. "}")
-                    log("  SelectedBlock=" .. desc(raw(obj, "SelectedBlock")))
-                    log("  MoveHandles=" .. desc(raw(obj, "MoveHandles")))
-                    log("  BoxSelection=" .. desc(raw(obj, "BoxSelection")))
-                    log("  Toolbar=" .. desc(raw(obj, "Toolbar")))
-                    log("  metatable.__index=" .. desc(idx))
-                    if type(idx) == "table" then
-                        log("  indexKeys={" .. keys(idx, 18) .. "}")
+local function inspectUpvalues(label, fn)
+    if type(fn) ~= "function" or not debug or type(debug.getupvalues) ~= "function" then
+        log(label .. " upvalues unavailable")
+        return
+    end
+    local ok, ups = pcall(debug.getupvalues, fn)
+    if not ok or type(ups) ~= "table" then
+        log(label .. " getupvalues failed: " .. tostring(ups))
+        return
+    end
+    for i, value in pairs(ups) do
+        log(label .. " U" .. tostring(i) .. "=" .. desc(value))
+        if type(value) == "table" then
+            local mt = getmetatable(value)
+            local idx = type(mt) == "table" and raw(mt, "__index") or nil
+            local fields = {}
+            for _, key in ipairs({"SelectedBlock","MoveHandles","BoxSelection","Toolbar","BuildModeClient","BuildingModeToolbar"}) do
+                local v = raw(value, key)
+                if v ~= nil then fields[#fields+1] = key .. "=" .. desc(v) end
+            end
+            if #fields > 0 then log("  MATCH " .. table.concat(fields, " ; ")) end
+            if type(idx) == "table" then
+                for _, key in ipairs({"Mount","BindBuildActions","PlaceBlockAction","Update","Action"}) do
+                    local method = raw(idx, key)
+                    if type(method) == "function" then
+                        log("  METHOD " .. key .. "=" .. desc(method))
+                        if key == "PlaceBlockAction" or key == "BindBuildActions" then
+                            inspectUpvalues(label .. "." .. key, method)
+                        end
                     end
                 end
             end
         end
-        log("GC tables scanned=" .. total .. " candidates=" .. candidates)
     end
+end
+
+log("===== KNOWN REFERENCE DIAGNOSTIC V11 =====")
+log("GUI=" .. gui:GetFullName())
+log("----- GUI relevant descendants -----")
+listChildren(gui, "GUI.", 4)
+log("----- ReplicatedStorage.BuildMode descendants -----")
+listChildren(root, "BuildMode.", 4)
+
+if root then
+    local modes = root:FindFirstChild("Modes")
+    local move = modes and modes:FindFirstChild("Move")
+    if move and type(require) == "function" then
+        local ok, exported = pcall(require, move)
+        log("Move require=" .. tostring(ok) .. " " .. desc(exported))
+        if ok and type(exported) == "table" then
+            for _, key in ipairs({"Init","Enter","Update","Action","Exit"}) do
+                inspectUpvalues("Move." .. key, raw(exported, key))
+            end
+        end
+    end
+end
+
+if type(getloadedmodules) == "function" then
+    local ok, modules = pcall(getloadedmodules)
+    log("getloadedmodules=" .. tostring(ok) .. " " .. desc(modules))
+    if ok and type(modules) == "table" then
+        for _, module in ipairs(modules) do
+            if typeof(module) == "Instance" and (string.find(string.lower(module.Name), "buildmode", 1, true)
+                or string.find(string.lower(module.Name), "toolbar", 1, true)) then
+                log("LOADED MODULE=" .. desc(module))
+            end
+        end
+    end
+else
+    log("getloadedmodules unavailable")
 end
 log("===== END =====")
