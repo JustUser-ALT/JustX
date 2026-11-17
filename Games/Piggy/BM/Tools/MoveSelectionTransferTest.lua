@@ -41,14 +41,29 @@ if not result or not result.Instance then
     error("[MoveTransfer] No Build Mode block under cursor")
 end
 
-local Target = result.Instance.Parent
-if not Target or not Target:IsA("Model") or Target.Parent ~= BuildModel then
-    error("[MoveTransfer] Cursor target is not a direct BuildModel block")
+local Hit = result.Instance
+local Target = Hit
+
+-- Walk upward because the ray may hit a nested part or helper object.
+while Target and Target.Parent ~= BuildModel do
+    Target = Target.Parent
+end
+
+if not Target or Target.Parent ~= BuildModel or not Target:IsA("Model") then
+    warn("[MoveTransfer] Raycast hit:", Hit:GetFullName(), "[" .. Hit.ClassName .. "]")
+    local Node = Hit
+    local Depth = 0
+    while Node and Depth < 8 do
+        warn("[MoveTransfer] Ancestor " .. Depth .. ":", Node:GetFullName(), "[" .. Node.ClassName .. "]")
+        Node = Node.Parent
+        Depth = Depth + 1
+    end
+    error("[MoveTransfer] Could not resolve hit to a direct Model child of BuildModel")
 end
 
 local Previous = ClientState.SelectedBlock
 if Previous == Target then
-    warn("[MoveTransfer] Target is already selected by native Move")
+    warn("[MoveTransfer] Target is already selected by native Move:", Target:GetFullName())
     return
 end
 
@@ -56,6 +71,7 @@ end
 ClientState.SelectedBlock = Target
 BuildingMode:SetMode(MoveMode)
 
+print("[MoveTransfer] Raycast hit:", Hit:GetFullName())
 print("[MoveTransfer] Previous:", Previous and Previous:GetFullName() or "nil")
 print("[MoveTransfer] New selection:", Target:GetFullName())
 print("[MoveTransfer] Native Move mode requested")
