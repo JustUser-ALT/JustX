@@ -1,4 +1,4 @@
-local BUILD_REVISION = "HH-2026.11.18-r1"
+local BUILD_REVISION = "HH-2026.11.18-r2"
 warn("[Horrific Housing] Loaded build: " .. BUILD_REVISION)
 
 local Players = game:GetService("Players")
@@ -763,7 +763,61 @@ local function registerPumpkin(model)
     task.defer(trySinisterClaim, model)
 end
 
-local Plates = workspace:FindFirstChild("Plates")
+local Plates
+local platesWatchers = {}
+local platesFolderConnections = {}
+
+local function registerPlatesWatcher(callback)
+    table.insert(platesWatchers, callback)
+    callback(Plates)
+end
+
+local function bindPlates(folder)
+    if folder == Plates then
+        return
+    end
+
+    Plates = folder
+
+    for _, connection in ipairs(platesFolderConnections) do
+        disconnect(connection)
+    end
+    table.clear(platesFolderConnections)
+
+    for _, callback in ipairs(platesWatchers) do
+        callback(Plates)
+    end
+
+    if not Plates then
+        return
+    end
+
+    local function watchPlate(plate)
+        for _, callback in ipairs(platesWatchers) do
+            callback(Plates, plate)
+        end
+    end
+
+    for _, plate in ipairs(Plates:GetChildren()) do
+        watchPlate(plate)
+    end
+
+    table.insert(platesFolderConnections, Plates.ChildAdded:Connect(watchPlate))
+end
+
+keepConnection(workspace.ChildAdded:Connect(function(child)
+    if child.Name == "Plates" then
+        bindPlates(child)
+    end
+end))
+
+keepConnection(workspace.ChildRemoved:Connect(function(child)
+    if child == Plates then
+        bindPlates(nil)
+    end
+end))
+
+bindPlates(workspace:FindFirstChild("Plates"))
 
 local function getPumpkinRoot(object, plate)
     if not object then
@@ -790,40 +844,52 @@ local function getPumpkinRoot(object, plate)
     return candidate
 end
 
-if Plates then
-    local function registerPumpkinsIn(plate)
-        for _, object in ipairs(plate:GetDescendants()) do
-            if object.Name == "Pumpkin" and object:IsA("Model") then
-                local root = getPumpkinRoot(object, plate)
-                if root then
-                    registerPumpkin(root)
-                end
-            end
-        end
+local sinisterPlateConnections = {}
 
-        local direct = plate:FindFirstChild("Pumpkin")
-        if direct and direct:IsA("Model") then
-            registerPumpkin(direct)
+local function registerPumpkinsIn(plate)
+    for _, object in ipairs(plate:GetDescendants()) do
+        if object.Name == "Pumpkin" and object:IsA("Model") then
+            local root = getPumpkinRoot(object, plate)
+            if root then
+                registerPumpkin(root)
+            end
         end
     end
 
-    local function registerPlate(plate)
-        registerPumpkinsIn(plate)
+    local direct = plate:FindFirstChild("Pumpkin")
+    if direct and direct:IsA("Model") then
+        registerPumpkin(direct)
+    end
+end
 
-        keepConnection(plate.DescendantAdded:Connect(function(object)
+registerPlatesWatcher(function(folder, plate)
+    if plate then
+        registerPumpkinsIn(plate)
+        table.insert(sinisterPlateConnections, plate.DescendantAdded:Connect(function(object)
             local candidate = getPumpkinRoot(object, plate)
             if candidate then
                 task.defer(registerPumpkin, candidate)
             end
         end))
+        return
     end
 
-    for _, plate in ipairs(Plates:GetChildren()) do
-        registerPlate(plate)
+    for _, connection in ipairs(sinisterPlateConnections) do
+        disconnect(connection)
     end
+    table.clear(sinisterPlateConnections)
 
-    keepConnection(Plates.ChildAdded:Connect(registerPlate))
-end
+    if not folder then
+        for model, record in pairs(registeredPumpkins) do
+            if not model:IsDescendantOf(workspace) then
+                for _, connection in ipairs(record.Connections or {}) do
+                    disconnect(connection)
+                end
+                registeredPumpkins[model] = nil
+            end
+        end
+    end
+end)
 
 Misc:Toggle({
     Name = "Auto Sinister",
@@ -1575,8 +1641,8 @@ local function updateTreasureMapESP()
     end
 end
 
-if Plates then
-    local function watchTreasurePlate(plate)
+registerPlatesWatcher(function(folder, plate)
+    if plate then
         table.insert(treasureMapConnections, plate.DescendantAdded:Connect(function(object)
             local candidate = object.Name == "MapModel"
                 and object
@@ -1587,17 +1653,29 @@ if Plates then
             end
         end))
 
-        scanTreasureMaps(plate)
+        if treasureMapEspEnabled then
+            scanTreasureMaps(plate)
+        end
+        return
     end
 
-    for _, plate in ipairs(Plates:GetChildren()) do
-        watchTreasurePlate(plate)
+    for _, connection in ipairs(treasureMapConnections) do
+        disconnect(connection)
     end
+    table.clear(treasureMapConnections)
 
-    table.insert(treasureMapConnections, Plates.ChildAdded:Connect(function(plate)
-        watchTreasurePlate(plate)
-    end))
-end
+    if folder and treasureMapEspEnabled then
+        scanTreasureMaps(folder)
+    else
+        local objects = {}
+        for object in pairs(treasureMapObjects) do
+            table.insert(objects, object)
+        end
+        for _, object in ipairs(objects) do
+            removeTreasureMapESP(object)
+        end
+    end
+end)
 
 Visual:Toggle({
     Name = "Treasure Map ESP",
