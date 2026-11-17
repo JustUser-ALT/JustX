@@ -832,6 +832,39 @@ local function setHideRoleUI(enabled)
     end
 end
 
+local evictionNoticeEnabled = false
+
+local function removeEvictionNotice(gui)
+    if not evictionNoticeEnabled or not gui:IsA("ScreenGui") or gui.Name ~= "Notice" then
+        return
+    end
+
+    local frame = gui:FindFirstChild("Frame")
+    local field = frame and frame:FindFirstChild("Field")
+    local info = field and field:FindFirstChild("Info")
+
+    if info and gui:FindFirstChild("sfxOpen") and gui:FindFirstChild("sfxClose") then
+        gui:Destroy()
+    end
+end
+
+keepConnection(PlayerGui.ChildAdded:Connect(removeEvictionNotice))
+
+Visual:Toggle({
+    Name = "Eviction Notice",
+    Default = false,
+    Flag = "HH_EvictionNotice",
+    Callback = function(enabled)
+        evictionNoticeEnabled = enabled
+
+        if enabled then
+            for _, gui in ipairs(PlayerGui:GetChildren()) do
+                removeEvictionNotice(gui)
+            end
+        end
+    end
+})
+
 Visual:Toggle({
     Name = "Hide Role UI",
     Default = false,
