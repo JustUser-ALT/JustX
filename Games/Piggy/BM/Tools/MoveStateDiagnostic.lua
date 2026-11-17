@@ -1,4 +1,4 @@
--- Native Move Selection Diagnostic v6 (read-only)
+-- Native Move Selection Diagnostic v7 (read-only)
 -- Run in ORIGINAL Piggy Build Mode with a block selected and Move active.
 
 local RS = game:GetService("ReplicatedStorage")
@@ -6,7 +6,7 @@ local Players = game:GetService("Players")
 local gui = Players.LocalPlayer:WaitForChild("PlayerGui"):WaitForChild("BuildModeGui")
 local modes = RS:WaitForChild("BuildMode"):WaitForChild("Modes")
 
-local count, LIMIT = 0, 100
+local count, LIMIT = 0, 110
 local function log(v)
     if count >= LIMIT then return end
     count += 1
@@ -19,57 +19,58 @@ local function describe(v)
         local ok, name = pcall(function() return v:GetFullName() end)
         return (ok and name or v.Name) .. " <" .. v.ClassName .. ">"
     end
+    if type(v) == "table" then return "table" .. (getmetatable(v) and " [mt]" or "") end
     return tostring(v) .. " <" .. t .. ">"
 end
 
-local function inspectModule(name)
-    local module = modes:FindFirstChild(name)
-    if not module then log(name .. ": module missing"); return end
-    log("===== MODULE " .. name .. " =====")
-    log("Instance=" .. describe(module))
-    if type(decompile) ~= "function" then
-        log("decompile unavailable")
-        return
-    end
-    local ok, source = pcall(decompile, module)
-    if not ok or type(source) ~= "string" then
-        log("decompile failed: " .. tostring(source))
-        return
-    end
-    log("SourceLength=" .. #source)
-    local lines = string.split(source, "\n")
-    local hits, shown = {}, 0
-    for i, line in ipairs(lines) do
-        local lower = string.lower(line)
-        if string.find(lower, "selectedblock", 1, true)
-            or string.find(lower, "setadornee", 1, true)
-            or string.find(lower, "movehandles", 1, true)
-            or string.find(lower, "boxselection", 1, true)
-            or string.find(lower, "action", 1, true)
-            or string.find(lower, "selection", 1, true)
-            or string.find(lower, "adornee", 1, true) then
-            hits[#hits + 1] = i
+local function inspectFunction(label, fn)
+    log(label .. "=" .. describe(fn))
+    if type(fn) ~= "function" or not debug then return end
+    if type(debug.getconstants) == "function" then
+        local ok, values = pcall(debug.getconstants, fn)
+        if ok and type(values) == "table" then
+            for i, value in pairs(values) do
+                if type(value) == "string" then log("  C" .. tostring(i) .. "=" .. value) end
+            end
         end
     end
-    log("RelevantLines=" .. #hits)
-    for _, lineNo in ipairs(hits) do
-        if shown >= 32 then break end
-        shown += 1
-        local line = lines[lineNo] or ""
-        if #line > 220 then line = string.sub(line, 1, 220) .. "..." end
-        log(name .. ":" .. lineNo .. ": " .. line)
-    end
-    if #hits == 0 then
-        for i = 1, math.min(#lines, 12) do
-            local line = lines[i]
-            if #line > 220 then line = string.sub(line, 1, 220) .. "..." end
-            log(name .. ":" .. i .. ": " .. line)
+    if type(debug.getupvalues) == "function" then
+        local ok, values = pcall(debug.getupvalues, fn)
+        if ok and type(values) == "table" then
+            for i, value in pairs(values) do log("  U" .. tostring(i) .. "=" .. describe(value)) end
         end
     end
 end
 
-log("===== MODE MODULE DIAGNOSTIC V6 =====")
+log("===== MOVE ACTION SOURCE V7 =====")
 log("GUI=" .. gui:GetFullName())
-inspectModule("Move")
-inspectModule("Select")
+for _, name in ipairs({"Move", "Select"}) do
+    local module = modes:FindFirstChild(name)
+    if not module then log(name .. " missing"); continue end
+    if type(decompile) == "function" then
+        local ok, source = pcall(decompile, module)
+        if ok and type(source) == "string" then
+            log("----- " .. name .. " FULL SOURCE -----")
+            local lines = string.split(source, "\n")
+            for i, line in ipairs(lines) do
+                if #line > 240 then line = string.sub(line, 1, 240) .. "..." end
+                log(name .. ":" .. i .. ": " .. line)
+            end
+        else
+            log(name .. " decompile failed: " .. tostring(source))
+        end
+    else
+        log("decompile unavailable")
+    end
+    local okReq, result = pcall(require, module)
+    if okReq and type(result) == "table" then
+        log("----- " .. name .. " EXPORTS -----")
+        for key, value in pairs(result) do
+            if type(value) == "function" then inspectFunction(name .. "." .. tostring(key), value)
+            else log(name .. "." .. tostring(key) .. "=" .. describe(value)) end
+        end
+    else
+        log(name .. " require failed or non-table: " .. tostring(result))
+    end
+end
 log("===== END =====")
