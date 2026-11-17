@@ -762,11 +762,39 @@ end
 
 local Plates = workspace:FindFirstChild("Plates")
 
+local function getPumpkinRoot(object, plate)
+    if not object then
+        return nil
+    end
+
+    local candidate = object:IsA("Model") and object.Name == "Pumpkin"
+        and object
+        or object:FindFirstAncestor("Pumpkin")
+
+    if not candidate or not candidate:IsA("Model") then
+        return nil
+    end
+
+    while candidate.Parent and candidate.Parent ~= plate do
+        local parent = candidate.Parent
+        if parent:IsA("Model") and parent.Name == "Pumpkin" then
+            candidate = parent
+        else
+            break
+        end
+    end
+
+    return candidate
+end
+
 if Plates then
     local function registerPumpkinsIn(plate)
         for _, object in ipairs(plate:GetDescendants()) do
             if object.Name == "Pumpkin" and object:IsA("Model") then
-                registerPumpkin(object)
+                local root = getPumpkinRoot(object, plate)
+                if root then
+                    registerPumpkin(root)
+                end
             end
         end
 
@@ -780,13 +808,9 @@ if Plates then
         registerPumpkinsIn(plate)
 
         keepConnection(plate.DescendantAdded:Connect(function(object)
-            if object.Name == "Pumpkin" and object:IsA("Model") then
-                registerPumpkin(object)
-            else
-                local candidate = object:FindFirstAncestor("Pumpkin")
-                if candidate and candidate:IsA("Model") then
-                    task.defer(registerPumpkin, candidate)
-                end
+            local candidate = getPumpkinRoot(object, plate)
+            if candidate then
+                task.defer(registerPumpkin, candidate)
             end
         end))
     end
@@ -809,8 +833,11 @@ Misc:Toggle({
             for _, plate in ipairs(Plates:GetChildren()) do
                 for _, model in ipairs(plate:GetDescendants()) do
                     if model.Name == "Pumpkin" and model:IsA("Model") then
-                        registerPumpkin(model)
-                        trySinisterClaim(model)
+                        local root = getPumpkinRoot(model, plate)
+                        if root then
+                            registerPumpkin(root)
+                            trySinisterClaim(root)
+                        end
                     end
                 end
             end
@@ -824,10 +851,13 @@ JL:Spawn(function()
             for _, plate in ipairs(Plates:GetChildren()) do
                 for _, model in ipairs(plate:GetDescendants()) do
                     if model.Name == "Pumpkin" and model:IsA("Model") then
-                        if not registeredPumpkins[model] then
-                            registerPumpkin(model)
+                        local root = getPumpkinRoot(model, plate)
+                        if root then
+                            if not registeredPumpkins[root] then
+                                registerPumpkin(root)
+                            end
+                            trySinisterClaim(root)
                         end
-                        trySinisterClaim(model)
                     end
                 end
             end
