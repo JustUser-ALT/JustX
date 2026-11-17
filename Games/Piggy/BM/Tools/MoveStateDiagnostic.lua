@@ -1,130 +1,89 @@
--- Native Move Tool State Diagnostic (compact)
--- Read-only. Run in the ORIGINAL Piggy Build Mode while Move is active.
+-- Native Move Selection Diagnostic (focused, read-only)
+-- Run in ORIGINAL Piggy Build Mode with a block selected and Move handles visible.
 
-local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
 local gui = Players.LocalPlayer:WaitForChild("PlayerGui"):WaitForChild("BuildModeGui")
 local BMC = require(RS:WaitForChild("BuildMode"):WaitForChild("BuildModeClient"))
 
-local lines = 0
-local LIMIT = 58
-local function log(message)
+local lines, LIMIT = 0, 48
+local function log(v)
     if lines >= LIMIT then return end
-    lines = lines + 1
-    print("[MoveState] " .. tostring(message))
+    lines += 1
+    print("[MoveState] " .. tostring(v))
 end
 
-local function describe(value)
-    local kind = typeof(value)
-    if kind == "Instance" then
-        local ok, name = pcall(function() return value:GetFullName() end)
-        return (ok and name or value.Name) .. " <" .. value.ClassName .. ">"
-    elseif kind == "table" then
-        return "table" .. (getmetatable(value) and " [metatable]" or "")
-    elseif kind == "function" then
-        return "function"
+local function desc(v)
+    local t = typeof(v)
+    if t == "Instance" then
+        local ok, n = pcall(function() return v:GetFullName() end)
+        return (ok and n or v.Name) .. " <" .. v.ClassName .. ">"
     end
-    return tostring(value) .. " <" .. kind .. ">"
+    return t == "table" and ("table" .. (getmetatable(v) and " [mt]" or "")) or (t == "function" and "function" or tostring(v) .. " <" .. t .. ">")
 end
 
-local function listKeys(label, value, max)
-    if type(value) ~= "table" then
-        log(label .. " = " .. describe(value))
-        return
+local function inspect(label, obj, maxKeys, maxMethods)
+    log(label .. " = " .. desc(obj))
+    if type(obj) ~= "table" then return end
+    local n = 0
+    for k, v in pairs(obj) do
+        n += 1
+        if n <= maxKeys then log("  ." .. tostring(k) .. " : " .. typeof(v)) end
     end
-    log(label .. " keys:")
-    local count = 0
-    for key, item in pairs(value) do
-        count = count + 1
-        if count > max then
-            log("  ... truncated")
-            break
+    if n > maxKeys then log("  fields truncated; total=" .. n) end
+    local mt = getmetatable(obj)
+    local ix = type(mt) == "table" and rawget(mt, "__index")
+    local src = type(ix) == "table" and ix or (type(mt) == "table" and mt)
+    if type(src) == "table" then
+        local m = 0
+        for k, v in pairs(src) do
+            if type(v) == "function" then
+                m += 1
+                if m <= maxMethods then log("  method: " .. tostring(k)) end
+            end
         end
-        log("  " .. tostring(key) .. " : " .. typeof(item))
+        log("  methods total=" .. m)
+    else
+        log("  method source=" .. desc(ix))
     end
-    if count == 0 then log("  <empty>") end
 end
 
-local function listMethods(label, value)
-    if type(value) ~= "table" then return end
-    local mt = getmetatable(value)
-    local index = type(mt) == "table" and rawget(mt, "__index")
-    log(label .. " metatable.__index = " .. describe(index))
-    local source = type(index) == "table" and index or (type(mt) == "table" and mt)
-    if type(source) ~= "table" then return end
-    local count = 0
-    for key, item in pairs(source) do
-        if type(item) == "function" then
-            count = count + 1
-            if count <= 16 then log("  method: " .. tostring(key)) end
-        end
-    end
-    log(label .. " method count = " .. count)
-end
-
-log("========== COMPACT NATIVE MOVE DIAGNOSTIC ==========")
-log("BuildModeGui = " .. gui:GetFullName())
-
+log("===== FOCUSED SELECTION DIAGNOSTIC =====")
+log("GUI=" .. gui:GetFullName())
 if type(getgc) ~= "function" or not debug or type(debug.getupvalues) ~= "function" then
-    log("Required executor functions unavailable (getgc/debug.getupvalues).")
+    log("Missing getgc/debug.getupvalues")
     return
 end
 
-local ok, ups = pcall(debug.getupvalues, BMC.new)
-local class = ok and type(ups) == "table" and ups[3]
-if not class then
-    log("Could not resolve ClientState class from BMC.new upvalue 3.")
-    return
-end
-log("ClientState class = " .. describe(class))
-
+local ok, up = pcall(debug.getupvalues, BMC.new)
+local class = ok and type(up) == "table" and up[3]
+if not class then log("ClientState class not found"); return end
 local okGc, gc = pcall(getgc, true)
-if not okGc or type(gc) ~= "table" then
-    log("getgc(true) failed.")
-    return
-end
+if not okGc or type(gc) ~= "table" then log("getgc failed"); return end
 
-local states = {}
+local state
 for _, obj in ipairs(gc) do
     if type(obj) == "table" then
         local okMt, mt = pcall(getmetatable, obj)
-        if okMt and mt == class then
-            states[#states + 1] = obj
-        end
+        if okMt and mt == class then state = obj; break end
     end
 end
-log("ClientState instances found = " .. #states)
+if not state then log("ClientState instance not found"); return end
 
-for i, state in ipairs(states) do
-    if i > 2 then break end
-    log("---- ClientState #" .. i .. " ----")
-    log("SelectedBlock = " .. describe(rawget(state, "SelectedBlock")))
-    log("MoveHandles = " .. describe(rawget(state, "MoveHandles")))
-    local toolbar = rawget(state, "Toolbar")
-    log("Toolbar = " .. describe(toolbar))
+log("ClientState.SelectedBlock=" .. desc(rawget(state, "SelectedBlock")))
+local outerHandles = rawget(state, "MoveHandles")
+log("ClientState.MoveHandles._Adornee=" .. desc(type(outerHandles) == "table" and rawget(outerHandles, "_Adornee")))
+local toolbar = rawget(state, "Toolbar")
+local buildingToolbar = type(toolbar) == "table" and rawget(toolbar, "BuildingModeToolbar")
+local client = type(buildingToolbar) == "table" and rawget(buildingToolbar, "BuildModeClient")
+log("Nested BuildModeClient=" .. desc(client))
+if type(client) ~= "table" then log("Nested client unavailable"); return end
 
-    local handles = rawget(state, "MoveHandles")
-    if type(handles) == "table" then
-        log("MoveHandles._Adornee = " .. describe(rawget(handles, "_Adornee")))
-        listMethods("MoveHandles", handles)
-    end
-
-    if type(toolbar) == "table" then
-        local direct = rawget(toolbar, "BuildModeClient")
-        local buildingToolbar = rawget(toolbar, "BuildingModeToolbar")
-        local nested = type(buildingToolbar) == "table" and rawget(buildingToolbar, "BuildModeClient") or nil
-        log("Toolbar.BuildModeClient = " .. describe(direct))
-        log("Toolbar.BuildingModeToolbar = " .. describe(buildingToolbar))
-        log("BuildingModeToolbar.BuildModeClient = " .. describe(nested))
-        listKeys("Toolbar.BuildModeClient", direct, 12)
-        listMethods("Toolbar.BuildModeClient", direct)
-        listKeys("BuildingModeToolbar", buildingToolbar, 12)
-        listKeys("BuildingModeToolbar.BuildModeClient", nested, 18)
-        listMethods("BuildingModeToolbar.BuildModeClient", nested)
-    end
-
-    -- Show only a few other ClientState field names/types; no function dumps.
-    listKeys("ClientState", state, 22)
-end
-
-log("========== END (output capped at " .. LIMIT .. " lines) ==========")
+log("Nested.SelectedBlock=" .. desc(rawget(client, "SelectedBlock")))
+local handles = rawget(client, "MoveHandles")
+log("Nested.MoveHandles._Adornee=" .. desc(type(handles) == "table" and rawget(handles, "_Adornee")))
+inspect("Nested.MoveHandles", handles, 5, 8)
+inspect("Nested.BoxSelection", rawget(client, "BoxSelection"), 10, 12)
+inspect("Nested.SurfaceSelection", rawget(client, "SurfaceSelection"), 10, 12)
+inspect("Nested.Placement", rawget(client, "Placement"), 8, 8)
+log("===== END =====")
