@@ -109,6 +109,7 @@ local Selection = {}
 local Outlines = {}
 local Connections = {}
 local MultiEnabled = false
+local GroupArmed = false
 local Cleaned = false
 local DragSession = nil
 local CommitBusy = false
@@ -140,7 +141,7 @@ end
 
 local function UpdateStatus()
     Status.Text = tostring(#Selection) .. " selected"
-    Toggle.Text = MultiEnabled and "GROUP MOVE ON" or "GROUP MOVE OFF"
+    Toggle.Text = not MultiEnabled and "GROUP MOVE OFF" or (GroupArmed and "GROUP ARMED" or "SELECT BLOCKS")
     Toggle.BackgroundColor3 = MultiEnabled
         and Color3.fromRGB(55, 105, 78)
         or Color3.fromRGB(42, 46, 55)
@@ -172,6 +173,13 @@ local function SetDriver()
     end
 end
 
+local function DisarmGroup()
+    GroupArmed = false
+    DragSession = nil
+    ClientState.SelectedBlock = nil
+    UpdateStatus()
+end
+
 local function ClearSelection()
     for block in pairs(Outlines) do
         RemoveOutline(block)
@@ -194,7 +202,11 @@ local function ToggleBlock(block)
         print("[MultiMoveTest] Added:", block:GetFullName())
     end
 
-    SetDriver()
+    -- Keep native MoveHandles disabled while collecting the group.
+    -- Otherwise the first selected block captures subsequent taps.
+    GroupArmed = false
+    DragSession = nil
+    ClientState.SelectedBlock = nil
     UpdateStatus()
 end
 
@@ -293,7 +305,7 @@ local function CommitGroupOthers()
 end
 
 local function BeginGroupDrag()
-    if not MultiEnabled or not IsMoveMode() or #Selection < 2 then
+    if not MultiEnabled or not GroupArmed or not IsMoveMode() or #Selection < 2 then
         DragSession = nil
         return
     end
@@ -331,13 +343,24 @@ end
 
 table.insert(Connections, Toggle.Activated:Connect(function()
     if not IsMoveMode() then return end
-    MultiEnabled = not MultiEnabled
     if not MultiEnabled then
-        DragSession = nil
-        ClearSelection()
+        MultiEnabled = true
+        GroupArmed = false
+        ClientState.SelectedBlock = nil
+        print("[MultiMoveTest] Selection mode enabled")
+    elseif not GroupArmed then
+        if #Selection < 2 then
+            print("[MultiMoveTest] Select at least 2 blocks before arming")
+            return
+        end
+        GroupArmed = true
+        SetDriver()
+        print("[MultiMoveTest] Group drag armed")
+    else
+        DisarmGroup()
+        print("[MultiMoveTest] Group drag disarmed; you can select more blocks")
     end
     UpdateStatus()
-    print("[MultiMoveTest] Group Move:", MultiEnabled and "ON" or "OFF")
 end))
 
 table.insert(Connections, ChangedEvent.Event:Connect(function()
@@ -376,7 +399,14 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
         if DragSession then
             ApplyGroupDelta()
         end
-        SetDriver()
+        if GroupArmed then
+            local driver = Selection[#Selection]
+            if IsValidBlock(driver) and ClientState.SelectedBlock ~= driver then
+                ClientState.SelectedBlock = driver
+            end
+        elseif ClientState.SelectedBlock ~= nil then
+            ClientState.SelectedBlock = nil
+        end
     end
     UpdateStatus()
 end))
@@ -412,7 +442,9 @@ Env.MultiMoveTestCleanup = Cleanup
 
 print("================================")
 print("[MultiMoveTest] Loaded")
-print("[MultiMoveTest] Select Move mode, enable GROUP MOVE, then select 2+ blocks")
+print("[MultiMoveTest] Select Move mode and enable SELECT BLOCKS")
+print("[MultiMoveTest] Select 2+ blocks, then tap the button again to arm native handles")
+print("[MultiMoveTest] Tap again to disarm and continue selecting")
 print("[MultiMoveTest] Drag the native Move arrows to move the group")
 print("[MultiMoveTest] Other blocks are committed individually on release")
 print("[MultiMoveTest] Use MultiMoveTestCleanup() to unload")
