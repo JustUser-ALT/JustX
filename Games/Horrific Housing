@@ -1,4 +1,4 @@
-local BUILD_REVISION = "HH-2026.11.18-r7"
+local BUILD_REVISION = "HH-2026.11.18-r8"
 warn("[Horrific Housing] Loaded build: " .. BUILD_REVISION)
 
 local Players = game:GetService("Players")
@@ -7,6 +7,56 @@ local RunService = game:GetService("RunService")
 local Lighting = game:GetService("Lighting")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+-- Local player-state checks used by the shared weapon targeting system.
+local PlayerDetection = {}
+
+function PlayerDetection.IsAlive(player)
+    if not player or player == LocalPlayer then
+        return false
+    end
+
+    local team = player.Team
+    if not team or team.Name ~= "Playing" then
+        return false
+    end
+
+    local character = player.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    return humanoid ~= nil and humanoid.Health > 0
+end
+
+function PlayerDetection.IsFrozen(player)
+    if not player then
+        return false
+    end
+
+    local character = player.Character
+    if player:GetAttribute("Frozen") == true
+        or player:GetAttribute("IsFrozen") == true
+        or (character and (
+            character:GetAttribute("Frozen") == true
+            or character:GetAttribute("IsFrozen") == true
+        )) then
+        return true
+    end
+
+    if character then
+        for _, descendant in ipairs(character:GetDescendants()) do
+            if descendant.Name == "Frozen" or descendant.Name == "IsFrozen" then
+                if descendant:IsA("BoolValue") then
+                    if descendant.Value then
+                        return true
+                    end
+                else
+                    return true
+                end
+            end
+        end
+    end
+
+    return false
+end
 
 -- Remove floating controls left behind by older script versions or reruns.
 for _, guiName in ipairs({
