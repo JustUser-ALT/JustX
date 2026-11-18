@@ -1,4 +1,4 @@
-local BUILD_REVISION = "HH-2026.11.18-r4"
+local BUILD_REVISION = "HH-2026.11.18-r5"
 warn("[Horrific Housing] Loaded build: " .. BUILD_REVISION)
 
 local Players = game:GetService("Players")
@@ -167,447 +167,62 @@ Misc:Toggle({
     Callback = setAutoFish
 })
 
--- Auto Freeze Ray
-local freezeEnabled = false
-local freezeGui
-local freezeButton
-local freezeHolder
-local freezeBeam
-local freezeTargetAttachment
-local freezeConnection
-local freezePriorityPlayer
-local freezeLastShot = 0
+-- Shared Weapon Shot Button
+local selectedShotTools = {}
+local shotGui
+local shotButton
+local shotOutline
+local shotLastShots = {
+    ["Freeze Ray"] = 0,
+    ["Paintball Gun"] = 0
+}
+local shotConnection
+local shotHolder
+local shotTargetAttachment
+local shotBeam
 
-local PlayerDetection = {}
-
-local function getPlayerTeamName(player)
-    local team = player and player.Team
-    return team and team.Name or nil
-end
-
-function PlayerDetection.GetRoundState(player)
-    local teamName = getPlayerTeamName(player)
-    if teamName == "Playing" then
-        return "Playing"
-    end
-    if teamName == "Lobby" then
-        return "Lobby"
-    end
-    return teamName or "Unknown"
-end
-
-function PlayerDetection.IsAlive(player)
-    if not player or PlayerDetection.GetRoundState(player) ~= "Playing" then
-        return false
-    end
-
-    local character = player.Character
-    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-    return humanoid ~= nil and humanoid.Health > 0
-end
-
-function PlayerDetection.IsFrozen(player)
-    if not player then
-        return false
-    end
-
-    local containers = {player}
-    if player.Character then
-        table.insert(containers, player.Character)
-    end
-
-    for _, container in ipairs(containers) do
-        for attribute, value in pairs(container:GetAttributes()) do
-            local key = tostring(attribute):lower():gsub("[%s_%-]", "")
-            if key == "frozen" and value == true then
-                return true
-            end
-            if (key == "status" or key == "effect" or key == "statuseffect")
-                and tostring(value):lower():find("frozen", 1, true) then
-                return true
-            end
-        end
-
-        for _, object in ipairs(container:GetDescendants()) do
-            local name = object.Name:lower():gsub("[%s_%-]", "")
-            if name == "frozen" then
-                if object:IsA("BoolValue") then
-                    if object.Value then
-                        return true
-                    end
-                else
-                    return true
-                end
-            end
-
-            for attribute, value in pairs(object:GetAttributes()) do
-                local key = tostring(attribute):lower():gsub("[%s_%-]", "")
-                if key == "frozen" and value == true then
-                    return true
-                end
-                if (key == "status" or key == "effect" or key == "statuseffect")
-                    and tostring(value):lower():find("frozen", 1, true) then
-                    return true
-                end
-            end
-
-            if object:IsA("StringValue") then
-                local key = object.Name:lower():gsub("[%s_%-]", "")
-                if (key == "status" or key == "effect" or key == "statuseffect")
-                    and object.Value:lower():find("frozen", 1, true) then
-                    return true
-                end
-            end
-        end
-    end
-
-    return false
-end
-
-function PlayerDetection.GetState(player)
-    return {
-        Team = PlayerDetection.GetRoundState(player),
-        Alive = PlayerDetection.IsAlive(player),
-        Frozen = PlayerDetection.IsFrozen(player)
-    }
-end
-
-if type(getgenv) == "function" then
-    getgenv().HH_PlayerDetection = PlayerDetection
-end
-
-local FREEZE_CONFIG = {
+local SHOT_CONFIG = {
     MaxAimAngle = 42,
-    MaxDistance = 300,
     UpdateRate = 0.05,
-    Cooldown = 1.5,
-    BeamColor = Color3.fromRGB(50, 255, 110)
+    FreezeCooldown = 1.5,
+    FreezeMaxDistance = 300,
+    FreezeBeamColor = Color3.fromRGB(50, 255, 110),
+    FreezeButtonColor = Color3.fromRGB(24, 75, 49),
+    PaintballButtonColor = Color3.fromRGB(28, 57, 82),
+    BothButtonColor = Color3.fromRGB(31, 70, 76),
+    FreezeOutlineColor = Color3.fromRGB(75, 220, 125),
+    PaintballOutlineColor = Color3.fromRGB(75, 190, 255),
+    BothOutlineColor = Color3.fromRGB(95, 220, 210)
 }
 
-local function getFreezeTool()
+local function getSelectedTool(name)
+    if not selectedShotTools[name] then
+        return nil
+    end
+
     local character = LocalPlayer.Character
-    return character and character:FindFirstChild("Freeze Ray")
-end
-
-local function getFreezeAttachment()
-    local tool = getFreezeTool()
-    local handle = tool and tool:FindFirstChild("Handle")
-    return handle and handle:FindFirstChild("Attachment")
-end
-
-local function getFreezeRoot(player)
-    local character = player and player.Character
-    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-    local root = character and character:FindFirstChild("HumanoidRootPart")
-
-    if humanoid and humanoid.Health > 0 and root then
-        return root
-    end
-end
-
-local function evaluateFreezeTarget(player)
-    if player == LocalPlayer or not PlayerDetection.IsAlive(player)
-        or PlayerDetection.IsFrozen(player) then
-        return nil
-    end
-
-    local root = getFreezeRoot(player)
-    local attachment = getFreezeAttachment()
-    local camera = workspace.CurrentCamera
-    if not root or not attachment or not camera then
-        return nil
-    end
-
-    local offset = root.Position - attachment.WorldPosition
-    local distance = offset.Magnitude
-    if distance <= 0 or distance > FREEZE_CONFIG.MaxDistance then
-        return nil
-    end
-
-    local cameraDirection = (root.Position - camera.CFrame.Position).Unit
-    local dot = math.clamp(camera.CFrame.LookVector:Dot(cameraDirection), -1, 1)
-    local angle = math.deg(math.acos(dot))
-    if angle > FREEZE_CONFIG.MaxAimAngle then
-        return nil
-    end
-
-    local params = RaycastParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-    params.FilterDescendantsInstances = {
-        LocalPlayer.Character,
-        getFreezeTool()
-    }
-    params.IgnoreWater = true
-
-    local hit = workspace:Raycast(attachment.WorldPosition, offset, params)
-    if hit and not hit.Instance:IsDescendantOf(player.Character) then
-        return nil
-    end
-
-    return {
-        Player = player,
-        Part = root,
-        AimAngle = angle,
-        Distance = distance
-    }
-end
-
-local function getFreezeTarget()
-    if freezePriorityPlayer then
-        local preferred = evaluateFreezeTarget(freezePriorityPlayer)
-        if preferred then
-            return preferred
-        end
-    end
-
-    local best
-    for _, player in ipairs(Players:GetPlayers()) do
-        local result = evaluateFreezeTarget(player)
-        if result and (not best
-            or result.AimAngle < best.AimAngle
-            or (result.AimAngle == best.AimAngle and result.Distance < best.Distance)) then
-            best = result
-        end
-    end
-
-    return best
-end
-
-local function createFreezeButton()
-    local gui = Instance.new("ScreenGui")
-    gui.Name = "HH_AutoFreezeRay"
-    gui.ResetOnSpawn = false
-    gui.IgnoreGuiInset = true
-    gui.DisplayOrder = 25
-    gui.Parent = PlayerGui
-
-    local button = Instance.new("ImageButton")
-    button.Name = "FreezeButton"
-    button.Size = UDim2.fromOffset(62, 62)
-    button.Position = UDim2.new(1, -88, 0.58, 0)
-    button.AnchorPoint = Vector2.zero
-    button.BackgroundColor3 = Color3.fromRGB(24, 75, 49)
-    button.BackgroundTransparency = 0.08
-    button.BorderSizePixel = 0
-    button.Image = ""
-    button.AutoButtonColor = false
-    button.Active = true
-    button.Modal = false
-    button.Parent = gui
-
-    local round = Instance.new("UICorner")
-    round.CornerRadius = UDim.new(1, 0)
-    round.Parent = button
-
-    local outline = Instance.new("UIStroke")
-    outline.Color = Color3.fromRGB(75, 220, 125)
-    outline.Thickness = 2
-    outline.Transparency = 0.08
-    outline.Parent = button
-
-    local ring = Instance.new("Frame")
-    ring.Name = "Ring"
-    ring.Size = UDim2.fromOffset(34, 34)
-    ring.Position = UDim2.new(0.5, -17, 0.5, -17)
-    ring.BackgroundTransparency = 1
-    ring.BorderSizePixel = 0
-    ring.Parent = button
-
-    local ringRound = Instance.new("UICorner")
-    ringRound.CornerRadius = UDim.new(1, 0)
-    ringRound.Parent = ring
-
-    local ringStroke = Instance.new("UIStroke")
-    ringStroke.Color = Color3.fromRGB(160, 255, 190)
-    ringStroke.Thickness = 2
-    ringStroke.Transparency = 0.05
-    ringStroke.Parent = ring
-
-    local center = Instance.new("Frame")
-    center.Name = "Center"
-    center.Size = UDim2.fromOffset(8, 8)
-    center.Position = UDim2.new(0.5, -4, 0.5, -4)
-    center.BackgroundColor3 = Color3.fromRGB(210, 255, 220)
-    center.BorderSizePixel = 0
-    center.Parent = button
-
-    local centerRound = Instance.new("UICorner")
-    centerRound.CornerRadius = UDim.new(1, 0)
-    centerRound.Parent = center
-
-    return gui, button, outline
-end
-
-local function updateFreezeBeam(target)
-    local attachment = getFreezeAttachment()
-    if not attachment or not target or not freezeBeam or not freezeHolder then
-        if freezeBeam then
-            freezeBeam.Enabled = false
-        end
-        return
-    end
-
-    freezeBeam.Attachment0 = attachment
-    freezeHolder.Position = target.Part.Position
-    freezeBeam.Enabled = true
-end
-
-local function fireFreezeRay()
-    if not freezeEnabled then
-        return
-    end
-
-    local now = os.clock()
-    if now - freezeLastShot < FREEZE_CONFIG.Cooldown then
-        return
-    end
-
-    local tool = getFreezeTool()
-    local attachment = getFreezeAttachment()
-    local remote = tool and tool:FindFirstChild("fire")
-
-    if not tool or not attachment then
-        return
-    end
-
-    if not remote or not remote:IsA("RemoteEvent") then
-        return
-    end
-
-    local target = getFreezeTarget()
-    if not target or not target.Part or not target.Part.Parent then
-        return
-    end
-
-    local offset = target.Part.Position - attachment.WorldPosition
-    if offset.Magnitude <= 0 then
-        return
-    end
-
-    local direction = offset.Unit
-    local fired = pcall(function()
-        remote:FireServer(direction)
-    end)
-
-    if fired then
-        freezeLastShot = now
-        if freezeButton and freezeButton.Parent then
-            local outline = freezeButton:FindFirstChildOfClass("UIStroke")
-            if outline then
-                outline.Color = Color3.fromRGB(220, 255, 225)
-                task.delay(0.12, function()
-                    if freezeEnabled and outline.Parent then
-                        outline.Color = Color3.fromRGB(75, 220, 125)
-                    end
-                end)
-            end
-        end
-    end
-end
-
-local function stopAutoFreezeRay()
-    freezeEnabled = false
-    disconnect(freezeConnection)
-    freezeConnection = nil
-
-    if freezeGui then
-        freezeGui:Destroy()
-    end
-
-    if freezeHolder then
-        freezeHolder:Destroy()
-    end
-
-    freezeGui = nil
-    freezeButton = nil
-    freezeHolder = nil
-    freezeBeam = nil
-    freezeTargetAttachment = nil
-    freezePriorityPlayer = nil
-    freezeLastShot = 0
-end
-
-local function setAutoFreezeRay(enabled)
-    stopAutoFreezeRay()
-    if not enabled then
-        return
-    end
-
-    freezeEnabled = true
-    freezeGui, freezeButton = createFreezeButton()
-    freezeButton.Activated:Connect(fireFreezeRay)
-
-    freezeHolder = Instance.new("Part")
-    freezeHolder.Name = "HH_FreezeRayTarget"
-    freezeHolder.Size = Vector3.new(0.1, 0.1, 0.1)
-    freezeHolder.Transparency = 1
-    freezeHolder.Anchored = true
-    freezeHolder.CanCollide = false
-    freezeHolder.CanTouch = false
-    freezeHolder.CanQuery = false
-    freezeHolder.Parent = workspace
-
-    freezeTargetAttachment = Instance.new("Attachment")
-    freezeTargetAttachment.Parent = freezeHolder
-
-    freezeBeam = Instance.new("Beam")
-    freezeBeam.Name = "HH_FreezeRayBeam"
-    freezeBeam.Attachment1 = freezeTargetAttachment
-    freezeBeam.Color = ColorSequence.new(FREEZE_CONFIG.BeamColor)
-    freezeBeam.Width0 = 0.055
-    freezeBeam.Width1 = 0.025
-    freezeBeam.FaceCamera = true
-    freezeBeam.LightEmission = 1
-    freezeBeam.Enabled = false
-    freezeBeam.Parent = freezeHolder
-
-    local elapsed = 0
-    freezeConnection = RunService.RenderStepped:Connect(function(dt)
-        if not freezeEnabled then
-            return
-        end
-
-        elapsed += dt
-        if elapsed < FREEZE_CONFIG.UpdateRate then
-            return
-        end
-        elapsed = 0
-
-        local target = getFreezeTarget()
-        updateFreezeBeam(target)
-    end)
-end
-
-Misc:Toggle({
-    Name = "Auto Freeze Ray",
-    Default = false,
-    Flag = "HH_AutoFreezeRay",
-    Callback = setAutoFreezeRay
-})
-
--- Paintball Gun Shot Button
-local paintballEnabled = false
-local paintballGui
-local paintballButton
-local paintballLastShot = 0
-
-local PAINTBALL_CONFIG = {
-    MaxAimAngle = FREEZE_CONFIG.MaxAimAngle,
-    ButtonColor = Color3.fromRGB(28, 57, 82),
-    OutlineColor = Color3.fromRGB(75, 190, 255),
-    ActiveColor = Color3.fromRGB(190, 235, 255)
-}
-
-local function getPaintballTool()
-    local character = LocalPlayer.Character
-    local tool = character and character:FindFirstChild("PaintballGun")
+    local tool = character and character:FindFirstChild(name)
     if tool and tool:IsA("Tool") then
         return tool
     end
 end
 
+local function getFreezeParts()
+    local tool = getSelectedTool("Freeze Ray")
+    local handle = tool and tool:FindFirstChild("Handle")
+    local attachment = handle and handle:FindFirstChild("Attachment")
+    local remote = tool and tool:FindFirstChild("fire")
+
+    if not tool or not attachment or not attachment:IsA("Attachment")
+        or not remote or not remote:IsA("RemoteEvent") then
+        return nil
+    end
+
+    return tool, attachment, remote
+end
+
 local function getPaintballParts()
-    local tool = getPaintballTool()
+    local tool = getSelectedTool("Paintball Gun")
     local handle = tool and tool:FindFirstChild("Handle")
     local muzzle = handle and handle:FindFirstChild("Muzzle")
     local remote = tool and tool:FindFirstChild("onFire")
@@ -624,8 +239,12 @@ local function getPaintballParts()
     return tool, muzzle, remote, range.Value, rate.Value
 end
 
-local function evaluatePaintballTarget(player)
+local function evaluateShotTarget(player, origin, tool, maxDistance, ignoreFrozen)
     if player == LocalPlayer or not PlayerDetection.IsAlive(player) then
+        return nil
+    end
+
+    if ignoreFrozen and PlayerDetection.IsFrozen(player) then
         return nil
     end
 
@@ -633,23 +252,25 @@ local function evaluatePaintballTarget(player)
     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
     local root = character and character:FindFirstChild("HumanoidRootPart")
     local camera = workspace.CurrentCamera
-    local tool, muzzle, _, maxDistance = getPaintballParts()
 
-    if not humanoid or humanoid.Health <= 0 or not root
-        or not camera or not tool or not muzzle then
+    if not humanoid or humanoid.Health <= 0 or not root or not camera then
         return nil
     end
 
-    local offset = root.Position - muzzle.WorldPosition
+    local offset = root.Position - origin
     local distance = offset.Magnitude
     if distance <= 0 or distance > maxDistance then
         return nil
     end
 
-    local cameraDirection = (root.Position - camera.CFrame.Position).Unit
-    local dot = math.clamp(camera.CFrame.LookVector:Dot(cameraDirection), -1, 1)
+    local cameraOffset = root.Position - camera.CFrame.Position
+    if cameraOffset.Magnitude <= 0 then
+        return nil
+    end
+
+    local dot = math.clamp(camera.CFrame.LookVector:Dot(cameraOffset.Unit), -1, 1)
     local angle = math.deg(math.acos(dot))
-    if angle > PAINTBALL_CONFIG.MaxAimAngle then
+    if angle > SHOT_CONFIG.MaxAimAngle then
         return nil
     end
 
@@ -661,7 +282,7 @@ local function evaluatePaintballTarget(player)
     }
     params.IgnoreWater = true
 
-    local hit = workspace:Raycast(muzzle.WorldPosition, offset, params)
+    local hit = workspace:Raycast(origin, offset, params)
     if not hit or not hit.Instance:IsDescendantOf(character) then
         return nil
     end
@@ -675,11 +296,11 @@ local function evaluatePaintballTarget(player)
     }
 end
 
-local function getPaintballTarget()
+local function getShotTarget(origin, tool, maxDistance, ignoreFrozen)
     local best
 
     for _, player in ipairs(Players:GetPlayers()) do
-        local result = evaluatePaintballTarget(player)
+        local result = evaluateShotTarget(player, origin, tool, maxDistance, ignoreFrozen)
         if result and (not best
             or result.AimAngle < best.AimAngle
             or (result.AimAngle == best.AimAngle and result.Distance < best.Distance)) then
@@ -690,20 +311,33 @@ local function getPaintballTarget()
     return best
 end
 
-local function createPaintballButton()
+local function updateShotBeam(target)
+    local _, attachment = getFreezeParts()
+    if not attachment or not target or not shotBeam or not shotHolder then
+        if shotBeam then
+            shotBeam.Enabled = false
+        end
+        return
+    end
+
+    shotBeam.Attachment0 = attachment
+    shotHolder.Position = target.Part.Position
+    shotBeam.Enabled = true
+end
+
+local function createShotButton()
     local gui = Instance.new("ScreenGui")
-    gui.Name = "HH_PaintballShot"
+    gui.Name = "HH_WeaponShotButton"
     gui.ResetOnSpawn = false
     gui.IgnoreGuiInset = true
     gui.DisplayOrder = 25
     gui.Parent = PlayerGui
 
     local button = Instance.new("ImageButton")
-    button.Name = "PaintballButton"
+    button.Name = "WeaponShotButton"
     button.Size = UDim2.fromOffset(62, 62)
     button.Position = UDim2.new(1, -88, 0.48, 0)
     button.AnchorPoint = Vector2.zero
-    button.BackgroundColor3 = PAINTBALL_CONFIG.ButtonColor
     button.BackgroundTransparency = 0.08
     button.BorderSizePixel = 0
     button.Image = ""
@@ -717,7 +351,6 @@ local function createPaintballButton()
     round.Parent = button
 
     local outline = Instance.new("UIStroke")
-    outline.Color = PAINTBALL_CONFIG.OutlineColor
     outline.Thickness = 2
     outline.Transparency = 0.08
     outline.Parent = button
@@ -726,45 +359,115 @@ local function createPaintballButton()
     label.Name = "ShotLabel"
     label.Size = UDim2.fromScale(1, 1)
     label.BackgroundTransparency = 1
-    label.Text = "SHOT"
-    label.TextColor3 = Color3.fromRGB(225, 245, 255)
+    label.Text = "FIRE"
+    label.TextColor3 = Color3.fromRGB(235, 250, 255)
     label.Font = Enum.Font.GothamBold
     label.TextSize = 13
     label.Parent = button
 
-    return gui, button
+    return gui, button, outline
 end
 
-local function firePaintball()
-    if not paintballEnabled then
+local function updateShotButtonStyle()
+    if not shotButton or not shotButton.Parent or not shotOutline then
         return
     end
 
-    local tool, muzzle, remote, _, rate = getPaintballParts()
-    if not tool or not muzzle or not remote then
+    local hasFreeze = selectedShotTools["Freeze Ray"] == true
+    local hasPaintball = selectedShotTools["Paintball Gun"] == true
+
+    if hasFreeze and hasPaintball then
+        shotButton.BackgroundColor3 = SHOT_CONFIG.BothButtonColor
+        shotOutline.Color = SHOT_CONFIG.BothOutlineColor
+    elseif hasFreeze then
+        shotButton.BackgroundColor3 = SHOT_CONFIG.FreezeButtonColor
+        shotOutline.Color = SHOT_CONFIG.FreezeOutlineColor
+    else
+        shotButton.BackgroundColor3 = SHOT_CONFIG.PaintballButtonColor
+        shotOutline.Color = SHOT_CONFIG.PaintballOutlineColor
+    end
+end
+
+local function flashShotButton(color)
+    if not shotOutline or not shotOutline.Parent then
         return
+    end
+
+    local normalColor = shotOutline.Color
+    shotOutline.Color = color
+    task.delay(0.12, function()
+        if shotOutline and shotOutline.Parent then
+            updateShotButtonStyle()
+        end
+    end)
+end
+
+local function fireFreezeRay()
+    local tool, attachment, remote = getFreezeParts()
+    if not tool or not attachment or not remote then
+        return false
     end
 
     local now = os.clock()
-    if now - paintballLastShot < math.max(tonumber(rate) or 0, 0.05) then
-        return
+    if now - shotLastShots["Freeze Ray"] < SHOT_CONFIG.FreezeCooldown then
+        return false
     end
 
-    local target = getPaintballTarget()
+    local target = getShotTarget(
+        attachment.WorldPosition,
+        tool,
+        SHOT_CONFIG.FreezeMaxDistance,
+        true
+    )
+
+    if not target or not target.Part or not target.Part.Parent then
+        return false
+    end
+
+    local offset = target.Part.Position - attachment.WorldPosition
+    if offset.Magnitude <= 0 then
+        return false
+    end
+
+    local fired = pcall(function()
+        remote:FireServer(offset.Unit)
+    end)
+
+    if fired then
+        shotLastShots["Freeze Ray"] = now
+        flashShotButton(Color3.fromRGB(220, 255, 225))
+        return true
+    end
+
+    return false
+end
+
+local function firePaintball()
+    local tool, muzzle, remote, maxDistance, rate = getPaintballParts()
+    if not tool or not muzzle or not remote then
+        return false
+    end
+
+    local now = os.clock()
+    local cooldown = math.max(tonumber(rate) or 0, 0.05)
+    if now - shotLastShots["Paintball Gun"] < cooldown then
+        return false
+    end
+
+    local target = getShotTarget(muzzle.WorldPosition, tool, maxDistance, false)
     if not target or not target.Part or not target.Part.Parent or not target.Hit then
-        return
+        return false
     end
 
     local origin = muzzle.WorldPosition
     local offset = target.Hit.Position - origin
     if offset.Magnitude <= 0 then
-        return
+        return false
     end
 
-    local direction = offset.Unit
     local hit = target.Hit
     local fired = pcall(function()
-        remote:FireServer(origin, direction, {
+        remote:FireServer(origin, offset.Unit, {
             Position = hit.Position,
             Normal = hit.Normal,
             Instance = hit.Instance
@@ -772,52 +475,147 @@ local function firePaintball()
     end)
 
     if fired then
-        paintballLastShot = now
+        shotLastShots["Paintball Gun"] = now
+        flashShotButton(Color3.fromRGB(190, 235, 255))
+        return true
+    end
 
-        if paintballButton and paintballButton.Parent then
-            local outline = paintballButton:FindFirstChildOfClass("UIStroke")
-            if outline then
-                outline.Color = PAINTBALL_CONFIG.ActiveColor
-                task.delay(0.12, function()
-                    if paintballEnabled and outline.Parent then
-                        outline.Color = PAINTBALL_CONFIG.OutlineColor
-                    end
-                end)
+    return false
+end
+
+local function fireSelectedTools()
+    if selectedShotTools["Freeze Ray"] then
+        fireFreezeRay()
+    end
+
+    if selectedShotTools["Paintball Gun"] then
+        firePaintball()
+    end
+end
+
+local function stopSharedShotButton()
+    disconnect(shotConnection)
+    shotConnection = nil
+
+    if shotGui then
+        shotGui:Destroy()
+    end
+
+    if shotHolder then
+        shotHolder:Destroy()
+    end
+
+    shotGui = nil
+    shotButton = nil
+    shotOutline = nil
+    shotHolder = nil
+    shotTargetAttachment = nil
+    shotBeam = nil
+    table.clear(selectedShotTools)
+    shotLastShots["Freeze Ray"] = 0
+    shotLastShots["Paintball Gun"] = 0
+end
+
+local function setSelectedShotTools(selection)
+    table.clear(selectedShotTools)
+
+    if type(selection) == "table" then
+        for _, name in ipairs(selection) do
+            if name == "Freeze Ray" or name == "Paintball Gun" then
+                selectedShotTools[name] = true
             end
         end
-    end
-end
-
-local function stopPaintballButton()
-    paintballEnabled = false
-
-    if paintballGui then
-        paintballGui:Destroy()
+    elseif type(selection) == "string" then
+        if selection == "Freeze Ray" or selection == "Paintball Gun" then
+            selectedShotTools[selection] = true
+        end
     end
 
-    paintballGui = nil
-    paintballButton = nil
-    paintballLastShot = 0
-end
-
-local function setPaintballButton(enabled)
-    stopPaintballButton()
-    if not enabled then
+    if next(selectedShotTools) == nil then
+        stopSharedShotButton()
         return
     end
 
-    paintballEnabled = true
-    paintballGui, paintballButton = createPaintballButton()
-    paintballButton.Activated:Connect(firePaintball)
+    if not shotGui or not shotGui.Parent then
+        shotGui, shotButton, shotOutline = createShotButton()
+        shotButton.Activated:Connect(fireSelectedTools)
+    end
+
+    updateShotButtonStyle()
+
+    if selectedShotTools["Freeze Ray"] then
+        if not shotHolder or not shotHolder.Parent then
+            shotHolder = Instance.new("Part")
+            shotHolder.Name = "HH_WeaponShotTarget"
+            shotHolder.Size = Vector3.new(0.1, 0.1, 0.1)
+            shotHolder.Transparency = 1
+            shotHolder.Anchored = true
+            shotHolder.CanCollide = false
+            shotHolder.CanTouch = false
+            shotHolder.CanQuery = false
+            shotHolder.Parent = workspace
+
+            shotTargetAttachment = Instance.new("Attachment")
+            shotTargetAttachment.Parent = shotHolder
+
+            shotBeam = Instance.new("Beam")
+            shotBeam.Name = "HH_FreezeRayBeam"
+            shotBeam.Attachment1 = shotTargetAttachment
+            shotBeam.Color = ColorSequence.new(SHOT_CONFIG.FreezeBeamColor)
+            shotBeam.Width0 = 0.055
+            shotBeam.Width1 = 0.025
+            shotBeam.FaceCamera = true
+            shotBeam.LightEmission = 1
+            shotBeam.Enabled = false
+            shotBeam.Parent = shotHolder
+        end
+    else
+        if shotHolder then
+            shotHolder:Destroy()
+        end
+        shotHolder = nil
+        shotTargetAttachment = nil
+        shotBeam = nil
+    end
+
+    disconnect(shotConnection)
+    shotConnection = nil
+
+    if selectedShotTools["Freeze Ray"] then
+        local elapsed = 0
+        shotConnection = RunService.RenderStepped:Connect(function(dt)
+            elapsed += dt
+            if elapsed < SHOT_CONFIG.UpdateRate then
+                return
+            end
+            elapsed = 0
+
+            local tool, attachment = getFreezeParts()
+            if not tool or not attachment then
+                updateShotBeam(nil)
+                return
+            end
+
+            local target = getShotTarget(
+                attachment.WorldPosition,
+                tool,
+                SHOT_CONFIG.FreezeMaxDistance,
+                true
+            )
+            updateShotBeam(target)
+        end)
+    end
 end
 
-Misc:Toggle({
-    Name = "Paintball Shot Button",
-    Default = false,
-    Flag = "HH_PaintballShotButton",
-    Callback = setPaintballButton
+local shotToolDropdown = Misc:Dropdown({
+    Name = "Shot Tools",
+    Options = {"Freeze Ray", "Paintball Gun"},
+    MultiSelect = true,
+    Search = false,
+    Value = {},
+    Flag = "HH_ShotTools",
+    Callback = setSelectedShotTools
 })
-
 
 local GearTable
 local GearList = {}
@@ -1991,8 +1789,7 @@ JL:Spawn(function()
 end)
 
 JL:OnUnload(function()
-    stopAutoFreezeRay()
-    stopPaintballButton()
+    stopSharedShotButton()
     maxZoomEnabled = false
     LocalPlayer.CameraMaxZoomDistance = originalMaxZoom
     stopAutoFish()
