@@ -102,14 +102,6 @@ DropShadow.ScaleType = Enum.ScaleType.Slice
 DropShadow.ZIndex = 0
 DropShadow.Parent = CloneButton
 
-local ButtonStroke = Instance.new("UIStroke")
-ButtonStroke.Name = "UIStroke"
-ButtonStroke.Color = Color3.new(0, 0, 0)
-ButtonStroke.Thickness = 1
-ButtonStroke.Transparency = 0.9
-ButtonStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
-ButtonStroke.Parent = CloneButton
-
 local TutStroke = Instance.new("UIStroke")
 TutStroke.Name = "TutStroke"
 TutStroke.Color = Color3.fromRGB(101, 255, 98)
