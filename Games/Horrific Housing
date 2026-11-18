@@ -1,4 +1,4 @@
-local BUILD_REVISION = "HH-2026.11.18-r2"
+local BUILD_REVISION = "HH-2026.11.18-r3"
 warn("[Horrific Housing] Loaded build: " .. BUILD_REVISION)
 
 local Players = game:GetService("Players")
@@ -1072,7 +1072,7 @@ end
 keepConnection(PlayerGui.ChildAdded:Connect(removeEvictionNotice))
 
 Visual:Toggle({
-    Name = "Eviction Notice",
+    Name = "Delete Eviction UI",
     Default = false,
     Flag = "HH_EvictionNotice",
     Callback = function(enabled)
@@ -1140,7 +1140,31 @@ Visual:Slider({
 
 local fogSnapshot
 local atmosphereSnapshots = {}
-local fogDescendantConnection
+local fogConnections = {}
+local atmosphereConnections = {}
+local applyingFog = false
+
+local function disconnectAll(list)
+    for _, connection in ipairs(list) do
+        disconnect(connection)
+    end
+    table.clear(list)
+end
+
+local function enforceFog()
+    if not fogEnabled or applyingFog then
+        return
+    end
+
+    applyingFog = true
+    if Lighting.FogStart ~= 0 then
+        Lighting.FogStart = 0
+    end
+    if Lighting.FogEnd ~= 1000000 then
+        Lighting.FogEnd = 1000000
+    end
+    applyingFog = false
+end
 
 local function disableAtmosphere(object)
     if not object:IsA("Atmosphere") then
@@ -1153,53 +1177,54 @@ local function disableAtmosphere(object)
             Haze = object.Haze,
             Glare = object.Glare
         }
+
+        local function enforceAtmosphere()
+            if not fogEnabled then
+                return
+            end
+            if object.Parent then
+                if object.Density ~= 0 then object.Density = 0 end
+                if object.Haze ~= 0 then object.Haze = 0 end
+                if object.Glare ~= 0 then object.Glare = 0 end
+            end
+        end
+
+        table.insert(atmosphereConnections, object:GetPropertyChangedSignal("Density"):Connect(enforceAtmosphere))
+        table.insert(atmosphereConnections, object:GetPropertyChangedSignal("Haze"):Connect(enforceAtmosphere))
+        table.insert(atmosphereConnections, object:GetPropertyChangedSignal("Glare"):Connect(enforceAtmosphere))
     end
 
-    object.Density = 0
-    object.Haze = 0
-    object.Glare = 0
+    if object.Density ~= 0 then object.Density = 0 end
+    if object.Haze ~= 0 then object.Haze = 0 end
+    if object.Glare ~= 0 then object.Glare = 0 end
 end
 
 local function setDeleteFog(enabled)
     fogEnabled = enabled
-    disconnect(fogDescendantConnection)
-    fogDescendantConnection = nil
+    disconnectAll(fogConnections)
+    disconnectAll(atmosphereConnections)
 
     if enabled then
         fogSnapshot = {
             FogStart = Lighting.FogStart,
             FogEnd = Lighting.FogEnd
         }
-
         table.clear(atmosphereSnapshots)
 
         for _, object in ipairs(Lighting:GetDescendants()) do
             disableAtmosphere(object)
         end
 
-        Lighting.FogStart = 0
-        Lighting.FogEnd = 1000000
-
-        fogDescendantConnection = Lighting.DescendantAdded:Connect(function(object)
+        table.insert(fogConnections, Lighting:GetPropertyChangedSignal("FogStart"):Connect(enforceFog))
+        table.insert(fogConnections, Lighting:GetPropertyChangedSignal("FogEnd"):Connect(enforceFog))
+        table.insert(fogConnections, Lighting.DescendantAdded:Connect(function(object)
             if fogEnabled then
                 disableAtmosphere(object)
             end
-        end)
+        end))
+        table.insert(fogConnections, RunService.RenderStepped:Connect(enforceFog))
 
-        task.spawn(function()
-            while fogEnabled and JL:IsAlive() do
-                Lighting.FogStart = 0
-                Lighting.FogEnd = 1000000
-
-                for _, object in ipairs(Lighting:GetDescendants()) do
-                    if object:IsA("Atmosphere") then
-                        disableAtmosphere(object)
-                    end
-                end
-
-                task.wait(0.25)
-            end
-        end)
+        enforceFog()
     else
         if fogSnapshot then
             Lighting.FogStart = fogSnapshot.FogStart
