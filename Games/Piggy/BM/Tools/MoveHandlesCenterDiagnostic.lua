@@ -118,3 +118,39 @@ if typeof(selected) == "Instance" and selected:IsA("Model") then
 end
 
 print("========== END DIAGNOSTIC ==========")
+
+--==================================================
+-- RENDER / ADORNEE UPDATE PATH
+--==================================================
+
+print("========== RENDER PIPELINE INSPECTION ==========")
+
+local classTable
+local destroyMethod = mt and mt.Destroy
+if type(destroyMethod) == "function" and type(debug) == "table" then
+    local ok, values = pcall(debug.getupvalues, destroyMethod)
+    if ok and type(values) == "table" then
+        for _, value in pairs(values) do
+            if type(value) == "table"
+                and type(rawget(value, "Render")) == "function"
+                and type(rawget(value, "_AdorneeChanged")) == "function" then
+                classTable = value
+                break
+            end
+        end
+    end
+end
+
+if classTable then
+    print("HANDLE CLASS TABLE FOUND")
+    InspectFunction("CLASS Render", classTable.Render)
+    InspectFunction("CLASS _AdorneeChanged", classTable._AdorneeChanged)
+    InspectFunction("CLASS SetAdornee", classTable.SetAdornee)
+else
+    print("HANDLE CLASS TABLE NOT FOUND")
+end
+
+InspectFunction("INSTANCE SetAdornee", mt and mt.SetAdornee)
+
+print("========== END RENDER PIPELINE ==========")
+
