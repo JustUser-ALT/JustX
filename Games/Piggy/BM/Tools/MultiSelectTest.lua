@@ -39,8 +39,7 @@ for attempt = 1, 100 do
     for _, object in ipairs(getgc(true)) do
         if type(object) == "table"
             and rawget(object, "ScreenGui") == BuildModeGui
-            and rawget(object, "Toolbar")
-            and type(rawget(object, "PlaceBlockAction")) == "function" then
+            and rawget(object, "Toolbar") then
             ClientState = object
             break
         end
@@ -54,7 +53,9 @@ for attempt = 1, 100 do
 end
 
 assert(ClientState, "[MultiSelectTest] BuildModeClient not found")
+
 local OriginalPlaceBlockAction = ClientState.PlaceBlockAction
+assert(type(OriginalPlaceBlockAction) == "function", "[MultiSelectTest] BuildModeClient found, but PlaceBlockAction is unavailable")
 
 local Placement = PlacementLogic.new()
 local AdornmentParent = BuildModeGui:WaitForChild("Frame"):WaitForChild("Adornment")
