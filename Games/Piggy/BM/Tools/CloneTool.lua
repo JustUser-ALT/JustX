@@ -1,11 +1,12 @@
 --==================================================
 -- CLONE TOOL
--- Contextual button integration with native Build Mode Move.
--- Uses the original CloneTool button; does not add a toolbar mode.
+-- Contextual Clone button for the native Build Mode Move tool.
+-- Recreates the source game's button; does not add a toolbar mode.
 --==================================================
 
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
+local CoreGui = game:GetService("CoreGui")
 
 local Player = Players.LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
@@ -17,6 +18,7 @@ local BuildModeFolder = RS:WaitForChild("BuildMode")
 local BuildingMode = require(BuildModeFolder:WaitForChild("BuildingMode"))
 local Enumeration = require(BuildModeFolder:WaitForChild("Common"):WaitForChild("Enumeration"))
 local MoveMode = Enumeration.BuildingMode.Move
+local ChangedEvent = BuildModeFolder:WaitForChild("Events"):WaitForChild("BuildingModeChanged")
 
 local Functions = RS:WaitForChild("Functions")
 local PlaceBlock = Functions:WaitForChild("PlaceBlock")
@@ -39,20 +41,126 @@ assert(type(ClientState) == "table", "[CloneTool] Live BuildModeClient not found
 assert(type(ClientState.PlaceBlockAction) == "function", "[CloneTool] PlaceBlockAction missing")
 
 --==================================================
--- ORIGINAL CONTEXTUAL CLONE BUTTON
+-- CLONE BUTTON UI
+-- Recreated from the source game's visual diagnostics.
 --==================================================
 
-local BuildGui = PlayerGui:FindFirstChild("BuildGui")
-local Miscellaneous = BuildGui and BuildGui:FindFirstChild("Miscellaneous")
-local CornerButtons = Miscellaneous and Miscellaneous:FindFirstChild("CornerButtons")
-local CloneButton = CornerButtons and CornerButtons:FindFirstChild("CloneTool")
+local GuiParent
+pcall(function()
+    if type(gethui) == "function" then
+        GuiParent = gethui()
+    end
+end)
+GuiParent = GuiParent or CoreGui
 
-assert(CloneButton and CloneButton:IsA("GuiButton"),
-    "[CloneTool] Original BuildGui.Miscellaneous.CornerButtons.CloneTool button not found")
+local OldGui = GuiParent:FindFirstChild("JustXCloneButton")
+if OldGui then
+    OldGui:Destroy()
+end
+
+local CloneGui = Instance.new("ScreenGui")
+CloneGui.Name = "JustXCloneButton"
+CloneGui.ResetOnSpawn = false
+CloneGui.IgnoreGuiInset = true
+CloneGui.DisplayOrder = 10000
+CloneGui.Enabled = false
+
+local CloneButton = Instance.new("ImageButton")
+CloneButton.Name = "CloneTool"
+CloneButton.Size = UDim2.fromOffset(56.316, 56.316)
+CloneButton.Position = UDim2.new(0, 8, 1, 0)
+CloneButton.AnchorPoint = Vector2.new(0, 1)
+CloneButton.BackgroundColor3 = Color3.fromRGB(255, 142, 142)
+CloneButton.BackgroundTransparency = 0
+CloneButton.BorderSizePixel = 0
+CloneButton.Image = ""
+CloneButton.AutoButtonColor = true
+CloneButton.Active = true
+CloneButton.Selectable = true
+CloneButton.ZIndex = 1
+CloneButton.Parent = CloneGui
+
+local ButtonCorner = Instance.new("UICorner")
+ButtonCorner.CornerRadius = UDim.new(0, 10)
+ButtonCorner.Parent = CloneButton
+
+local ButtonAspect = Instance.new("UIAspectRatioConstraint")
+ButtonAspect.AspectRatio = 1
+ButtonAspect.DominantAxis = Enum.DominantAxis.Width
+ButtonAspect.Parent = CloneButton
+
+local DropShadow = Instance.new("ImageLabel")
+DropShadow.Name = "DropShadow"
+DropShadow.Size = UDim2.new(1, 10, 1, 10)
+DropShadow.Position = UDim2.new(0.5, 1, 0.5, 1)
+DropShadow.AnchorPoint = Vector2.new(0.5, 0.5)
+DropShadow.BackgroundTransparency = 1
+DropShadow.Image = "rbxassetid://6865151684"
+DropShadow.ImageColor3 = Color3.new(0, 0, 0)
+DropShadow.ImageTransparency = 0.2
+DropShadow.ScaleType = Enum.ScaleType.Slice
+DropShadow.ZIndex = 0
+DropShadow.Parent = CloneButton
+
+local ButtonStroke = Instance.new("UIStroke")
+ButtonStroke.Name = "UIStroke"
+ButtonStroke.Color = Color3.new(0, 0, 0)
+ButtonStroke.Thickness = 1
+ButtonStroke.Transparency = 0.9
+ButtonStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
+ButtonStroke.Parent = CloneButton
+
+local TutStroke = Instance.new("UIStroke")
+TutStroke.Name = "TutStroke"
+TutStroke.Color = Color3.fromRGB(101, 255, 98)
+TutStroke.Thickness = 1
+TutStroke.Transparency = 0
+TutStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+TutStroke.Enabled = false
+TutStroke.Parent = CloneButton
+
+local ToolImage = Instance.new("ImageLabel")
+ToolImage.Name = "ToolImage"
+ToolImage.Size = UDim2.fromScale(0.8, 0.8)
+ToolImage.Position = UDim2.fromScale(0.495607, 0.50257)
+ToolImage.AnchorPoint = Vector2.new(0.5, 0.5)
+ToolImage.BackgroundTransparency = 1
+ToolImage.Image = "rbxassetid://12365668909"
+ToolImage.ImageRectOffset = Vector2.new(360, 0)
+ToolImage.ImageRectSize = Vector2.new(72, 72)
+ToolImage.ImageColor3 = Color3.new(1, 1, 1)
+ToolImage.ImageTransparency = 0
+ToolImage.ScaleType = Enum.ScaleType.Fit
+ToolImage.ZIndex = 2
+ToolImage.Parent = CloneButton
+
+local ButtonText = Instance.new("TextLabel")
+ButtonText.Name = "TextLabel"
+ButtonText.Size = UDim2.fromScale(1, 1)
+ButtonText.Position = UDim2.fromScale(0, 0)
+ButtonText.BackgroundTransparency = 1
+ButtonText.Text = "CLONE"
+ButtonText.TextColor3 = Color3.new(0, 0, 0)
+ButtonText.TextSize = 14
+ButtonText.TextScaled = true
+ButtonText.Font = Enum.Font.GothamBold
+ButtonText.TextXAlignment = Enum.TextXAlignment.Center
+ButtonText.TextYAlignment = Enum.TextYAlignment.Center
+ButtonText.ZIndex = 2
+ButtonText.Parent = CloneButton
+
+CloneGui.Parent = GuiParent
 
 --==================================================
 -- TEMPLATE / BLOCK HELPERS
 --==================================================
+
+local function GetModelRef(model)
+    if not model then return nil end
+    return model:FindFirstChild("ColorPart")
+        or model:FindFirstChild("MouseFilterPart")
+        or model:FindFirstChildWhichIsA("BasePart", true)
+end
 
 local function FindTemplate(name)
     if Env.CPT_Utils and type(Env.CPT_Utils.findBlockInRS) == "function" then
@@ -122,9 +230,8 @@ local function CreateCopy(source)
     local copyBase = copy:FindFirstChild("Base")
     local copyColorPart = copy:FindFirstChild("ColorPart")
 
-    -- Thin Wall is a two-part block. CommitResize needs a part/CFrame/Size
-    -- triple for BOTH Base and ColorPart; resizing only ColorPart loses the
-    -- wall dimensions when the map is saved and loaded again.
+    -- Thin Wall is a two-part block. Both Base and ColorPart must be resized
+    -- or its dimensions may not persist after save/load.
     if sourceBase and sourceColorPart and copyBase and copyColorPart
         and sourceBase:IsA("BasePart") and sourceColorPart:IsA("BasePart")
         and copyBase:IsA("BasePart") and copyColorPart:IsA("BasePart") then
@@ -158,7 +265,6 @@ local function CreateCopy(source)
     return copy
 end
 
-
 --==================================================
 -- MAIN MOVE ACTION HANDOFF
 --==================================================
@@ -168,15 +274,16 @@ local PendingClone
 local Cleaned = false
 local Connections = {}
 
+local function UpdateButtonVisibility(mode)
+    CloneGui.Enabled = mode == MoveMode
+end
+
 local function CloneSelectedBlock()
     if Cleaned then return end
-    if BuildingMode:Get() ~= MoveMode then
-        warn("[CloneTool] Clone button pressed outside native Move mode")
-        return
-    end
+    if BuildingMode:Get() ~= MoveMode then return end
 
     local source = ClientState.SelectedBlock
-    if not source or not source.Parent then
+    if not source or not source.Parent or source.Parent ~= BuildModel then
         warn("[CloneTool] Select a block with Move before cloning")
         return
     end
@@ -187,7 +294,6 @@ local function CloneSelectedBlock()
     PendingClone = copy
     Env.CloneToolPending = copy
 
-    -- Transfer native Move selection to the newly created clone.
     ClientState.SelectedBlock = copy
     BuildingMode:SetMode(MoveMode)
     print("[CloneTool] Clone created and handed to native Move")
@@ -204,8 +310,6 @@ local function ClonePlaceBlockAction(self, ...)
 
         PendingClone = nil
         Env.CloneToolPending = nil
-
-        -- Refresh native Move after clearing selection; no custom handles.
         BuildingMode:SetMode(MoveMode)
         print("[CloneTool] Move committed; clone selection cleared")
         return result
@@ -217,6 +321,11 @@ end
 ClientState.PlaceBlockAction = ClonePlaceBlockAction
 
 table.insert(Connections, CloneButton.Activated:Connect(CloneSelectedBlock))
+table.insert(Connections, ChangedEvent.Event:Connect(function(mode)
+    UpdateButtonVisibility(mode)
+end))
+
+UpdateButtonVisibility(BuildingMode:Get())
 
 --==================================================
 -- CLEANUP
@@ -242,6 +351,15 @@ local function Cleanup()
 
     PendingClone = nil
     Env.CloneToolPending = nil
+
+    if CloneGui and CloneGui.Parent then
+        CloneGui:Destroy()
+    end
+
+    if Env.CloneToolCleanup == Cleanup then
+        Env.CloneToolCleanup = nil
+    end
+
     print("[CloneTool] Cleanup complete")
 end
 
@@ -249,7 +367,8 @@ Env.CloneToolCleanup = Cleanup
 
 print("================================")
 print("[CloneTool] Loaded")
-print("[CloneTool] Original contextual button: CONNECTED")
+print("[CloneTool] Recreated contextual Clone button: READY")
+print("[CloneTool] Button visibility: Move mode only")
 print("[CloneTool] Native Move selection handoff: READY")
 print("[CloneTool] Separate toolbar button / Clone mode: REMOVED")
 print("================================")
