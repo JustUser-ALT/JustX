@@ -58,6 +58,25 @@ local OriginalPlaceBlockAction = ClientState.PlaceBlockAction
 local MoveHandles = ClientState.MoveHandles
 local Placement = PlacementLogic.new()
 local AdornmentParent = BuildModeGui:WaitForChild("Frame"):WaitForChild("Adornment")
+local OriginalMoveAdornee = MoveHandles._Adornee
+
+-- A local-only PVInstance used exclusively to position the native handles.
+-- Its orientation follows the active driver; its bounds cover the whole group.
+local ProxyModel = Instance.new("Model")
+ProxyModel.Name = "JustXMultiMoveBounds"
+local ProxyPart = Instance.new("Part")
+ProxyPart.Name = "GroupBounds"
+ProxyPart.Anchored = true
+ProxyPart.Transparency = 1
+ProxyPart.Size = Vector3.new(1, 1, 1)
+ProxyPart.CanCollide = false
+ProxyPart.CanTouch = false
+ProxyPart.CanQuery = false
+ProxyPart.CastShadow = false
+ProxyPart.Locked = true
+ProxyPart.Parent = ProxyModel
+ProxyModel.PrimaryPart = ProxyPart
+ProxyModel.Parent = workspace
 
 local oldGui = PlayerGui:FindFirstChild("JustXMultiMoveTest")
 if oldGui then oldGui:Destroy() end
@@ -173,9 +192,75 @@ local function SetDriver()
     end
 end
 
+local function UpdateProxyBounds()
+    local driver = Selection[#Selection]
+    if not IsValidBlock(driver) then return false end
+
+    local driverPivot = driver:GetPivot()
+    local minimum = Vector3.new(math.huge, math.huge, math.huge)
+    local maximum = Vector3.new(-math.huge, -math.huge, -math.huge)
+    local found = false
+
+    for _, block in ipairs(Selection) do
+        if IsValidBlock(block) then
+            local boxCFrame, boxSize = block:GetBoundingBox()
+            local half = boxSize * 0.5
+
+            for xSign = -1, 1, 2 do
+                for ySign = -1, 1, 2 do
+                    for zSign = -1, 1, 2 do
+                        local corner = boxCFrame:PointToWorldSpace(Vector3.new(
+                            half.X * xSign,
+                            half.Y * ySign,
+                            half.Z * zSign
+                        ))
+                        local localCorner = driverPivot:PointToObjectSpace(corner)
+                        minimum = Vector3.new(
+                            math.min(minimum.X, localCorner.X),
+                            math.min(minimum.Y, localCorner.Y),
+                            math.min(minimum.Z, localCorner.Z)
+                        )
+                        maximum = Vector3.new(
+                            math.max(maximum.X, localCorner.X),
+                            math.max(maximum.Y, localCorner.Y),
+                            math.max(maximum.Z, localCorner.Z)
+                        )
+                        found = true
+                    end
+                end
+            end
+        end
+    end
+
+    if not found then return false end
+
+    local localCenter = (minimum + maximum) * 0.5
+    local boundsSize = maximum - minimum
+    local worldCenter = driverPivot:PointToWorldSpace(localCenter)
+
+    ProxyPart.Size = Vector3.new(
+        math.max(boundsSize.X, 0.1),
+        math.max(boundsSize.Y, 0.1),
+        math.max(boundsSize.Z, 0.1)
+    )
+    ProxyModel:PivotTo(CFrame.new(worldCenter) * driverPivot.Rotation)
+    return true
+end
+
+local function SetMoveHandlesAdornee(adornee)
+    local ok, err = pcall(function()
+        MoveHandles:SetAdornee(adornee)
+    end)
+    if not ok then
+        warn("[MultiMoveTest] SetAdornee failed:", err)
+    end
+    return ok
+end
+
 local function DisarmGroup()
     GroupArmed = false
     DragSession = nil
+    SetMoveHandlesAdornee(nil)
     ClientState.SelectedBlock = nil
     UpdateStatus()
 end
@@ -206,6 +291,7 @@ local function ToggleBlock(block)
     -- Otherwise the first selected block captures subsequent taps.
     GroupArmed = false
     DragSession = nil
+    SetMoveHandlesAdornee(nil)
     ClientState.SelectedBlock = nil
     UpdateStatus()
 end
@@ -251,6 +337,10 @@ local function ApplyGroupDelta()
                 block:PivotTo(delta * startPivot)
             end)
         end
+    end
+
+    if GroupArmed then
+        UpdateProxyBounds()
     end
 end
 
@@ -355,7 +445,14 @@ table.insert(Connections, Toggle.Activated:Connect(function()
         end
         GroupArmed = true
         SetDriver()
-        print("[MultiMoveTest] Group drag armed")
+        if UpdateProxyBounds() then
+            SetMoveHandlesAdornee(ProxyModel)
+            print("[MultiMoveTest] Group drag armed; handles centered on group bounds")
+        else
+            GroupArmed = false
+            ClientState.SelectedBlock = nil
+            warn("[MultiMoveTest] Could not calculate group bounds")
+        end
     else
         DisarmGroup()
         print("[MultiMoveTest] Group drag disarmed; you can select more blocks")
@@ -404,6 +501,7 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
             if IsValidBlock(driver) and ClientState.SelectedBlock ~= driver then
                 ClientState.SelectedBlock = driver
             end
+            UpdateProxyBounds()
         elseif ClientState.SelectedBlock ~= nil then
             ClientState.SelectedBlock = nil
         end
@@ -430,6 +528,14 @@ local function Cleanup()
     end
 
     ClearSelection()
+    SetMoveHandlesAdornee(
+        typeof(OriginalMoveAdornee) == "Instance"
+            and OriginalMoveAdornee:IsA("PVInstance")
+            and OriginalMoveAdornee.Parent
+            and OriginalMoveAdornee
+            or nil
+    )
+    pcall(function() ProxyModel:Destroy() end)
     pcall(function() Gui:Destroy() end)
 
     if Env.MultiMoveTestCleanup == Cleanup then
