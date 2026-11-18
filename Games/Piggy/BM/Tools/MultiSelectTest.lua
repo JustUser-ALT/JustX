@@ -199,6 +199,16 @@ local function RemoveSelectionOutline(block)
     end
 end
 
+local function UpdateSelectionOutlineColors()
+    local color = GetToolColor()
+
+    for _, outline in pairs(SelectionOutlines) do
+        pcall(function()
+            outline:SetColor(color)
+        end)
+    end
+end
+
 local function SetNativeSelection()
     local last = Selection[#Selection]
     if IsValidBlock(last) then
@@ -371,6 +381,7 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
     end
 
     if MultiEnabled and IsSupportedMode() then
+        UpdateSelectionOutlineColors()
         UpdateHoverOutline()
     else
         HoverOutline:SetAdornee(nil)
