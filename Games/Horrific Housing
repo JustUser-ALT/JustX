@@ -1,4 +1,4 @@
-local BUILD_REVISION = "HH-2026.11.18-r6"
+local BUILD_REVISION = "HH-2026.11.18-r7"
 warn("[Horrific Housing] Loaded build: " .. BUILD_REVISION)
 
 local Players = game:GetService("Players")
@@ -7,6 +7,18 @@ local RunService = game:GetService("RunService")
 local Lighting = game:GetService("Lighting")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+-- Remove floating controls left behind by older script versions or reruns.
+for _, guiName in ipairs({
+    "HH_AutoFreezeRay",
+    "HH_PaintballShot",
+    "HH_WeaponShotButton"
+}) do
+    local staleGui = PlayerGui:FindFirstChild(guiName)
+    if staleGui then
+        staleGui:Destroy()
+    end
+end
 
 local LibraryUrl = "https://raw.githubusercontent.com/JustUser-ALT/JustXLibrary/main/JustLib.lua"
 local LibraryOk, JL = pcall(function()
@@ -172,6 +184,7 @@ local selectedShotTools = {}
 local shotGui
 local shotButton
 local shotOutline
+local shotLabel
 local shotLastShots = {
     ["Freeze Ray"] = 0,
     ["Paintball Gun"] = 0
@@ -365,7 +378,7 @@ local function createShotButton()
     label.TextSize = 13
     label.Parent = button
 
-    return gui, button, outline
+    return gui, button, outline, label
 end
 
 local function updateShotButtonStyle()
@@ -405,12 +418,12 @@ end
 local function fireFreezeRay()
     local tool, attachment, remote = getFreezeParts()
     if not tool or not attachment or not remote then
-        return false
+        return "EQUIP FREEZE RAY"
     end
 
     local now = os.clock()
     if now - shotLastShots["Freeze Ray"] < SHOT_CONFIG.FreezeCooldown then
-        return false
+        return "FREEZE COOLDOWN"
     end
 
     local target = getShotTarget(
@@ -422,12 +435,12 @@ local function fireFreezeRay()
     )
 
     if not target or not target.Part or not target.Part.Parent then
-        return false
+        return "NO FREEZE TARGET"
     end
 
     local offset = target.Part.Position - attachment.WorldPosition
     if offset.Magnitude <= 0 then
-        return false
+        return "INVALID FREEZE DIRECTION"
     end
 
     local fired = pcall(function()
@@ -437,33 +450,33 @@ local function fireFreezeRay()
     if fired then
         shotLastShots["Freeze Ray"] = now
         flashShotButton(Color3.fromRGB(220, 255, 225))
-        return true
+        return "FREEZE SENT"
     end
 
-    return false
+    return "FREEZE REMOTE ERROR"
 end
 
 local function firePaintball()
     local tool, muzzle, remote, maxDistance, rate = getPaintballParts()
     if not tool or not muzzle or not remote then
-        return false
+        return "EQUIP PAINTBALL GUN"
     end
 
     local now = os.clock()
     local cooldown = math.max(tonumber(rate) or 0, 0.05)
     if now - shotLastShots["Paintball Gun"] < cooldown then
-        return false
+        return "PAINTBALL COOLDOWN"
     end
 
     local target = getShotTarget(muzzle.WorldPosition, tool, maxDistance, false, true)
     if not target or not target.Part or not target.Part.Parent or not target.Hit then
-        return false
+        return "NO PAINTBALL TARGET"
     end
 
     local origin = muzzle.WorldPosition
     local offset = target.Hit.Position - origin
     if offset.Magnitude <= 0 then
-        return false
+        return "INVALID PAINTBALL DIRECTION"
     end
 
     local hit = target.Hit
@@ -478,19 +491,29 @@ local function firePaintball()
     if fired then
         shotLastShots["Paintball Gun"] = now
         flashShotButton(Color3.fromRGB(190, 235, 255))
-        return true
+        return "PAINTBALL SENT"
     end
 
-    return false
+    return "PAINTBALL REMOTE ERROR"
 end
 
 local function fireSelectedTools()
+    local results = {}
     if selectedShotTools["Freeze Ray"] then
-        fireFreezeRay()
+        table.insert(results, fireFreezeRay())
     end
 
     if selectedShotTools["Paintball Gun"] then
-        firePaintball()
+        table.insert(results, firePaintball())
+    end
+
+    if shotLabel and shotLabel.Parent then
+        shotLabel.Text = table.concat(results, " / ")
+        task.delay(1.1, function()
+            if shotLabel and shotLabel.Parent then
+                shotLabel.Text = "FIRE"
+            end
+        end)
     end
 end
 
@@ -509,6 +532,7 @@ local function stopSharedShotButton()
     shotGui = nil
     shotButton = nil
     shotOutline = nil
+    shotLabel = nil
     shotHolder = nil
     shotTargetAttachment = nil
     shotBeam = nil
@@ -521,7 +545,8 @@ local function setSelectedShotTools(selection)
     table.clear(selectedShotTools)
 
     if type(selection) == "table" then
-        for _, name in ipairs(selection) do
+        for key, value in pairs(selection) do
+            local name = type(key) == "number" and value or (value == true and key or nil)
             if name == "Freeze Ray" or name == "Paintball Gun" then
                 selectedShotTools[name] = true
             end
@@ -538,7 +563,7 @@ local function setSelectedShotTools(selection)
     end
 
     if not shotGui or not shotGui.Parent then
-        shotGui, shotButton, shotOutline = createShotButton()
+        shotGui, shotButton, shotOutline, shotLabel = createShotButton()
         shotButton.Activated:Connect(fireSelectedTools)
     end
 
@@ -615,7 +640,7 @@ local shotToolDropdown = Misc:Dropdown({
     MultiSelect = true,
     Search = false,
     Default = {},
-    Flag = "HH_ShotTools",
+    Flag = "HH_WeaponShotToolsV2",
     Callback = setSelectedShotTools
 })
 
