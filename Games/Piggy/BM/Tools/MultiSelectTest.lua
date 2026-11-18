@@ -113,7 +113,7 @@ local Selection = {}
 local SelectionOutlines = {}
 local HoverOutline = BoxSelectionAdornment.new()
 HoverOutline:SetParent(AdornmentParent)
-HoverOutline:SetColor(Color3.fromRGB(190, 190, 200))
+HoverOutline:SetColor(GetToolColor())
 HoverOutline:SetThickness(0.03)
 HoverOutline:SetAdornee(nil)
 
@@ -148,6 +148,20 @@ local function IsValidBlock(block)
         and block.Parent == BuildModel
 end
 
+local function GetToolColor()
+    local modeName = GetModeName(BuildingMode:Get())
+
+    if modeName == "Move" then
+        return Color3.fromRGB(0, 0, 255)
+    elseif modeName == "Rotate" then
+        return Color3.fromRGB(170, 85, 255)
+    elseif modeName == "Resize" then
+        return Color3.fromRGB(255, 128, 0)
+    end
+
+    return Color3.fromRGB(0, 0, 255)
+end
+
 local function UpdateStatus()
     Status.Text = tostring(#Selection) .. " selected"
     Toggle.Text = MultiEnabled and "MULTI  ON" or "MULTI  OFF"
@@ -168,8 +182,8 @@ end
 local function CreateSelectionOutline(block)
     local outline = BoxSelectionAdornment.new()
     outline:SetParent(AdornmentParent)
-    outline:SetColor(Color3.fromRGB(170, 85, 255))
-    outline:SetThickness(0.04)
+    outline:SetColor(GetToolColor())
+    outline:SetThickness(0.1)
     outline:SetAdornee(block)
     SelectionOutlines[block] = outline
 end
@@ -187,12 +201,16 @@ end
 
 local function SetNativeSelection()
     local last = Selection[#Selection]
-    ClientState.SelectedBlock = IsValidBlock(last) and last or nil
+    if IsValidBlock(last) then
+        ClientState.SelectedBlock = last
+    end
 end
 
 local function UpdateStatusAndNativeSelection()
     UpdateStatus()
-    SetNativeSelection()
+    if MultiEnabled then
+        SetNativeSelection()
+    end
 end
 
 local function ClearSelection()
@@ -200,7 +218,27 @@ local function ClearSelection()
         RemoveSelectionOutline(block)
     end
     table.clear(Selection)
-    SetNativeSelection()
+    UpdateStatus()
+end
+
+local function DisableMultiSelect()
+    local last = Selection[#Selection]
+
+    MultiEnabled = false
+    HoverOutline:SetAdornee(nil)
+
+    for block in pairs(SelectionOutlines) do
+        RemoveSelectionOutline(block)
+    end
+
+    table.clear(Selection)
+
+    -- Transfer the last multi-selected block to the native single selection.
+    -- Do not clear SelectedBlock when the multi-selection was empty.
+    if IsValidBlock(last) then
+        ClientState.SelectedBlock = last
+    end
+
     UpdateStatus()
 end
 
@@ -247,6 +285,8 @@ local function UpdateHoverOutline()
         HoverOutline:SetAdornee(nil)
         return
     end
+
+    HoverOutline:SetColor(GetToolColor())
 
     local hovered = GetHoveredBlock()
     if hovered and FindSelectionIndex(hovered) then
@@ -301,8 +341,8 @@ table.insert(Connections, Toggle.Activated:Connect(function()
     MultiEnabled = not MultiEnabled
 
     if not MultiEnabled then
-        ClearSelection()
-        HoverOutline:SetAdornee(nil)
+        DisableMultiSelect()
+        print("[MultiSelectTest] Multi Select disabled; native tool restored")
     else
         print("[MultiSelectTest] Multi Select enabled")
     end
@@ -336,7 +376,11 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
         HoverOutline:SetAdornee(nil)
     end
 
-    UpdateStatusAndNativeSelection()
+    if MultiEnabled then
+        UpdateStatusAndNativeSelection()
+    else
+        UpdateStatus()
+    end
 end))
 
 ClientState.PlaceBlockAction = MultiSelectPlaceBlockAction
