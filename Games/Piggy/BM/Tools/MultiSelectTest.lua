@@ -7,7 +7,6 @@
 
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
-local CoreGui = game:GetService("CoreGui")
 local RunService = game:GetService("RunService")
 
 local Player = Players.LocalPlayer
@@ -37,13 +36,9 @@ assert(type(ClientState.PlaceBlockAction) == "function", "[MultiSelectTest] Plac
 local OriginalPlaceBlockAction = ClientState.PlaceBlockAction
 local Placement = PlacementLogic.new()
 
-local GuiParent
-pcall(function()
-    if type(gethui) == "function" then
-        GuiParent = gethui()
-    end
-end)
-GuiParent = GuiParent or CoreGui
+-- This test runs as a LocalScript, so keep its UI inside PlayerGui.
+-- CoreGui / gethui may be inaccessible from this execution context.
+local GuiParent = PlayerGui
 
 local oldGui = GuiParent:FindFirstChild("JustXMultiSelectTest")
 if oldGui then
