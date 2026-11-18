@@ -1,8 +1,9 @@
 --==================================================
 -- MULTI SELECT TEST
--- Isolated selection prototype for Piggy Build Mode.
--- Supports selection visuals and group-center preview only.
--- Does not modify Move / Rotate / Resize tool implementations.
+-- Multi-selection prototype for Piggy Build Mode.
+-- Selection visuals use the same BoxSelectionAdornment
+-- implementation as the working Rotate tool.
+-- Group transforms are not implemented in this test.
 --==================================================
 
 local Players = game:GetService("Players")
@@ -12,13 +13,17 @@ local RunService = game:GetService("RunService")
 local Player = Players.LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
 local BuildModeGui = PlayerGui:WaitForChild("BuildModeGui")
-local Main = BuildModeGui:WaitForChild("Main")
 local BuildModel = workspace:WaitForChild("BuildModel")
 
 local BuildModeFolder = RS:WaitForChild("BuildMode")
 local BuildingMode = require(BuildModeFolder:WaitForChild("BuildingMode"))
 local ChangedEvent = BuildModeFolder:WaitForChild("Events"):WaitForChild("BuildingModeChanged")
 local PlacementLogic = require(BuildModeFolder:WaitForChild("PlacementLogic"))
+local BoxSelectionAdornment = require(
+    RS:WaitForChild("Packages")
+        :WaitForChild("CustomAdornments")
+        :WaitForChild("BoxSelectionAdornment")
+)
 
 local Env = (getgenv and getgenv()) or _G
 
@@ -26,21 +31,36 @@ if type(Env.MultiSelectTestCleanup) == "function" then
     pcall(Env.MultiSelectTestCleanup)
 end
 
-assert(type(getsenv) == "function", "[MultiSelectTest] getsenv unavailable")
-local MainEnv = getsenv(Main)
-local ClientState = MainEnv and MainEnv._G and MainEnv._G.BuildModeClient
+-- Find ClientState the same way as the working Rotate tool.
+local ClientState
+assert(type(getgc) == "function", "[MultiSelectTest] getgc unavailable")
 
-assert(type(ClientState) == "table", "[MultiSelectTest] BuildModeClient not found")
-assert(type(ClientState.PlaceBlockAction) == "function", "[MultiSelectTest] PlaceBlockAction missing")
+for attempt = 1, 100 do
+    for _, object in ipairs(getgc(true)) do
+        if type(object) == "table"
+            and rawget(object, "ScreenGui") == BuildModeGui
+            and rawget(object, "Toolbar")
+            and type(rawget(object, "PlaceBlockAction")) == "function" then
+            ClientState = object
+            break
+        end
+    end
 
+    if ClientState then
+        break
+    end
+
+    task.wait(0.1)
+end
+
+assert(ClientState, "[MultiSelectTest] BuildModeClient not found")
 local OriginalPlaceBlockAction = ClientState.PlaceBlockAction
+
 local Placement = PlacementLogic.new()
+local AdornmentParent = BuildModeGui:WaitForChild("Frame"):WaitForChild("Adornment")
 
--- This test runs as a LocalScript, so keep its UI inside PlayerGui.
--- CoreGui / gethui may be inaccessible from this execution context.
-local GuiParent = PlayerGui
-
-local oldGui = GuiParent:FindFirstChild("JustXMultiSelectTest")
+-- UI belongs to PlayerGui; this also works in ordinary LocalScript context.
+local oldGui = PlayerGui:FindFirstChild("JustXMultiSelectTest")
 if oldGui then
     oldGui:Destroy()
 end
@@ -51,12 +71,12 @@ Gui.ResetOnSpawn = false
 Gui.IgnoreGuiInset = true
 Gui.DisplayOrder = 10001
 Gui.Enabled = false
-Gui.Parent = GuiParent
+Gui.Parent = PlayerGui
 
 local Toggle = Instance.new("TextButton")
 Toggle.Name = "MultiSelectToggle"
-Toggle.Size = UDim2.fromOffset(92, 42)
-Toggle.Position = UDim2.new(1, -104, 0.56, 0)
+Toggle.Size = UDim2.fromOffset(96, 42)
+Toggle.Position = UDim2.new(1, -108, 0.56, 0)
 Toggle.BackgroundColor3 = Color3.fromRGB(42, 46, 55)
 Toggle.BorderSizePixel = 0
 Toggle.Text = "MULTI  OFF"
@@ -79,8 +99,8 @@ ToggleStroke.Parent = Toggle
 
 local Status = Instance.new("TextLabel")
 Status.Name = "SelectionCount"
-Status.Size = UDim2.fromOffset(92, 20)
-Status.Position = UDim2.new(1, -104, 0.56, 44)
+Status.Size = UDim2.fromOffset(96, 20)
+Status.Position = UDim2.new(1, -108, 0.56, 44)
 Status.BackgroundTransparency = 1
 Status.Text = "0 selected"
 Status.TextColor3 = Color3.fromRGB(220, 225, 235)
@@ -90,7 +110,13 @@ Status.Visible = false
 Status.Parent = Gui
 
 local Selection = {}
-local Highlights = {}
+local SelectionOutlines = {}
+local HoverOutline = BoxSelectionAdornment.new()
+HoverOutline:SetParent(AdornmentParent)
+HoverOutline:SetColor(Color3.fromRGB(190, 190, 200))
+HoverOutline:SetThickness(0.03)
+HoverOutline:SetAdornee(nil)
+
 local MultiEnabled = false
 local Cleaned = false
 local Connections = {}
@@ -130,7 +156,7 @@ local function UpdateStatus()
         or Color3.fromRGB(42, 46, 55)
 end
 
-local function GetSelectionIndex(block)
+local function FindSelectionIndex(block)
     for index, selected in ipairs(Selection) do
         if selected == block then
             return index
@@ -139,90 +165,43 @@ local function GetSelectionIndex(block)
     return nil
 end
 
-local function RemoveHighlight(block)
-    local highlight = Highlights[block]
-    if highlight then
-        Highlights[block] = nil
+local function CreateSelectionOutline(block)
+    local outline = BoxSelectionAdornment.new()
+    outline:SetParent(AdornmentParent)
+    outline:SetColor(Color3.fromRGB(170, 85, 255))
+    outline:SetThickness(0.04)
+    outline:SetAdornee(block)
+    SelectionOutlines[block] = outline
+end
+
+local function RemoveSelectionOutline(block)
+    local outline = SelectionOutlines[block]
+    if outline then
+        SelectionOutlines[block] = nil
         pcall(function()
-            highlight:Destroy()
+            outline:SetAdornee(nil)
+            outline:Destroy()
         end)
     end
 end
 
-local function AddHighlight(block)
-    if Highlights[block] then
-        return
-    end
-
-    local highlight = Instance.new("Highlight")
-    highlight.Name = "JustXMultiSelectHighlight"
-    highlight.Adornee = block
-    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-    highlight.FillColor = Color3.fromRGB(145, 105, 255)
-    highlight.FillTransparency = 0.88
-    highlight.OutlineColor = Color3.fromRGB(185, 155, 255)
-    highlight.OutlineTransparency = 0
-    highlight.Parent = Gui
-    Highlights[block] = highlight
-end
-
-local CenterMarker = Instance.new("Part")
-CenterMarker.Name = "JustXMultiSelectCenter"
-CenterMarker.Shape = Enum.PartType.Ball
-CenterMarker.Size = Vector3.new(0.28, 0.28, 0.28)
-CenterMarker.Anchored = true
-CenterMarker.CanCollide = false
-CenterMarker.CanTouch = false
-CenterMarker.CanQuery = false
-CenterMarker.CastShadow = false
-CenterMarker.Material = Enum.Material.Neon
-CenterMarker.Color = Color3.fromRGB(190, 155, 255)
-CenterMarker.Transparency = 0.05
-CenterMarker.Parent = workspace
-CenterMarker.LocalTransparencyModifier = 0
-CenterMarker.Transparency = 1
-
-local function UpdateCenter()
-    local total = Vector3.zero
-    local count = 0
-
-    for index = #Selection, 1, -1 do
-        local block = Selection[index]
-        if IsValidBlock(block) then
-            total += block:GetPivot().Position
-            count += 1
-        else
-            table.remove(Selection, index)
-            RemoveHighlight(block)
-        end
-    end
-
-    if count > 0 then
-        CenterMarker.Position = total / count
-        CenterMarker.Transparency = count > 1 and 0 or 1
-    else
-        CenterMarker.Transparency = 1
-    end
-
-    UpdateStatus()
-end
-
 local function SetNativeSelection()
-    local selected = Selection[#Selection]
-    if selected and IsValidBlock(selected) then
-        ClientState.SelectedBlock = selected
-    else
-        ClientState.SelectedBlock = nil
-    end
+    local last = Selection[#Selection]
+    ClientState.SelectedBlock = IsValidBlock(last) and last or nil
+end
+
+local function UpdateStatusAndNativeSelection()
+    UpdateStatus()
+    SetNativeSelection()
 end
 
 local function ClearSelection()
-    for block in pairs(Highlights) do
-        RemoveHighlight(block)
+    for block in pairs(SelectionOutlines) do
+        RemoveSelectionOutline(block)
     end
     table.clear(Selection)
     SetNativeSelection()
-    UpdateCenter()
+    UpdateStatus()
 end
 
 local function ToggleBlock(block)
@@ -230,21 +209,22 @@ local function ToggleBlock(block)
         return
     end
 
-    local index = GetSelectionIndex(block)
+    local index = FindSelectionIndex(block)
     if index then
         table.remove(Selection, index)
-        RemoveHighlight(block)
+        RemoveSelectionOutline(block)
         print("[MultiSelectTest] Removed:", block:GetFullName())
     else
         table.insert(Selection, block)
-        AddHighlight(block)
+        CreateSelectionOutline(block)
         print("[MultiSelectTest] Added:", block:GetFullName())
     end
 
-    SetNativeSelection()
-    UpdateCenter()
+    UpdateStatusAndNativeSelection()
 end
 
+-- Match the proven Rotate tool raycast target convention:
+-- PlacementLogic:Raycast() result.Instance.Parent is the build block Model.
 local function GetHoveredBlock()
     local ok, result = pcall(function()
         return Placement:Raycast()
@@ -254,7 +234,7 @@ local function GetHoveredBlock()
         return nil
     end
 
-    local candidate = result.Instance:FindFirstAncestorWhichIsA("Model")
+    local candidate = result.Instance.Parent
     if IsValidBlock(candidate) then
         return candidate
     end
@@ -262,24 +242,55 @@ local function GetHoveredBlock()
     return nil
 end
 
-local function MultiSelectAction(state, ...)
-    if Cleaned or not MultiEnabled or not IsSupportedMode() then
-        return OriginalPlaceBlockAction(state, ...)
+local function UpdateHoverOutline()
+    if not IsSupportedMode() then
+        HoverOutline:SetAdornee(nil)
+        return
+    end
+
+    local hovered = GetHoveredBlock()
+    if hovered and FindSelectionIndex(hovered) then
+        hovered = nil
+    end
+
+    HoverOutline:SetAdornee(hovered)
+end
+
+local function MultiSelectPlaceBlockAction(self, ...)
+    local mode = BuildingMode:Get()
+    local modeName = GetModeName(mode)
+
+    if Cleaned
+        or not MultiEnabled
+        or (modeName ~= "Move" and modeName ~= "Rotate" and modeName ~= "Resize") then
+        return OriginalPlaceBlockAction(self, ...)
     end
 
     local block = GetHoveredBlock()
     if block then
         ToggleBlock(block)
+    else
+        print("[MultiSelectTest] Click ignored: no BuildModel block under pointer")
     end
 
     return Enum.ContextActionResult.Sink
 end
 
-local function UpdateModeVisibility()
-    local visible = IsSupportedMode()
+local function UpdateModeVisibility(modeName)
+    local visible
+    if type(modeName) == "string" then
+        visible = modeName == "Move" or modeName == "Rotate" or modeName == "Resize"
+    else
+        visible = IsSupportedMode()
+    end
+
     Gui.Enabled = visible
     Toggle.Visible = visible
     Status.Visible = visible
+
+    if not visible then
+        HoverOutline:SetAdornee(nil)
+    end
 end
 
 table.insert(Connections, Toggle.Activated:Connect(function()
@@ -291,6 +302,7 @@ table.insert(Connections, Toggle.Activated:Connect(function()
 
     if not MultiEnabled then
         ClearSelection()
+        HoverOutline:SetAdornee(nil)
     else
         print("[MultiSelectTest] Multi Select enabled")
     end
@@ -298,8 +310,10 @@ table.insert(Connections, Toggle.Activated:Connect(function()
     UpdateStatus()
 end))
 
-table.insert(Connections, ChangedEvent.Event:Connect(function()
-    task.defer(UpdateModeVisibility)
+table.insert(Connections, ChangedEvent.Event:Connect(function(modeName)
+    task.defer(function()
+        UpdateModeVisibility(modeName)
+    end)
 end))
 
 table.insert(Connections, RunService.RenderStepped:Connect(function()
@@ -307,10 +321,25 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
         return
     end
 
-    UpdateCenter()
+    -- Keep invalid/deleted models out of the active selection.
+    for index = #Selection, 1, -1 do
+        local block = Selection[index]
+        if not IsValidBlock(block) then
+            table.remove(Selection, index)
+            RemoveSelectionOutline(block)
+        end
+    end
+
+    if MultiEnabled and IsSupportedMode() then
+        UpdateHoverOutline()
+    else
+        HoverOutline:SetAdornee(nil)
+    end
+
+    UpdateStatusAndNativeSelection()
 end))
 
-ClientState.PlaceBlockAction = MultiSelectAction
+ClientState.PlaceBlockAction = MultiSelectPlaceBlockAction
 UpdateModeVisibility()
 UpdateStatus()
 
@@ -327,16 +356,17 @@ local function Cleanup()
     end
     table.clear(Connections)
 
-    if ClientState.PlaceBlockAction == MultiSelectAction then
+    if ClientState.PlaceBlockAction == MultiSelectPlaceBlockAction then
         ClientState.PlaceBlockAction = OriginalPlaceBlockAction
     end
 
     ClearSelection()
-    MultiEnabled = false
 
     pcall(function()
-        CenterMarker:Destroy()
+        HoverOutline:SetAdornee(nil)
+        HoverOutline:Destroy()
     end)
+
     pcall(function()
         Gui:Destroy()
     end)
@@ -352,9 +382,9 @@ Env.MultiSelectTestCleanup = Cleanup
 
 print("================================")
 print("[MultiSelectTest] Loaded")
-print("[MultiSelectTest] Toggle: Move / Rotate / Resize only")
-print("[MultiSelectTest] Multi-selection + per-block outlines: READY")
-print("[MultiSelectTest] Group center preview: READY")
-print("[MultiSelectTest] Group transforms: NOT IMPLEMENTED IN THIS TEST")
+print("[MultiSelectTest] ClientState: FOUND")
+print("[MultiSelectTest] Hover outline: READY")
+print("[MultiSelectTest] Multi-selection outlines: READY")
+print("[MultiSelectTest] Group transforms: NOT IMPLEMENTED")
 print("[MultiSelectTest] Use MultiSelectTestCleanup() to unload")
 print("================================")
