@@ -275,7 +275,8 @@ local Cleaned = false
 local Connections = {}
 
 local function UpdateButtonVisibility(mode)
-    CloneGui.Enabled = mode == MoveMode
+    local modeName = tostring(mode):match("([^%.]+)$")
+    CloneGui.Enabled = mode == MoveMode or modeName == "Move" or mode == "Move"
 end
 
 local function CloneSelectedBlock()
