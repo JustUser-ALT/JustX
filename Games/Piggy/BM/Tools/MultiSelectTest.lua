@@ -113,7 +113,7 @@ local Selection = {}
 local SelectionOutlines = {}
 local HoverOutline = BoxSelectionAdornment.new()
 HoverOutline:SetParent(AdornmentParent)
-HoverOutline:SetColor(GetToolColor())
+HoverOutline:SetColor(Color3.fromRGB(0, 0, 255))
 HoverOutline:SetThickness(0.03)
 HoverOutline:SetAdornee(nil)
 
