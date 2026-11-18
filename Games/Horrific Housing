@@ -1,4 +1,4 @@
-local BUILD_REVISION = "HH-2026.11.18-r5"
+local BUILD_REVISION = "HH-2026.11.18-r6"
 warn("[Horrific Housing] Loaded build: " .. BUILD_REVISION)
 
 local Players = game:GetService("Players")
@@ -239,7 +239,7 @@ local function getPaintballParts()
     return tool, muzzle, remote, range.Value, rate.Value
 end
 
-local function evaluateShotTarget(player, origin, tool, maxDistance, ignoreFrozen)
+local function evaluateShotTarget(player, origin, tool, maxDistance, ignoreFrozen, requireHit)
     if player == LocalPlayer or not PlayerDetection.IsAlive(player) then
         return nil
     end
@@ -283,7 +283,7 @@ local function evaluateShotTarget(player, origin, tool, maxDistance, ignoreFroze
     params.IgnoreWater = true
 
     local hit = workspace:Raycast(origin, offset, params)
-    if not hit or not hit.Instance:IsDescendantOf(character) then
+    if (requireHit and not hit) or (hit and not hit.Instance:IsDescendantOf(character)) then
         return nil
     end
 
@@ -296,11 +296,11 @@ local function evaluateShotTarget(player, origin, tool, maxDistance, ignoreFroze
     }
 end
 
-local function getShotTarget(origin, tool, maxDistance, ignoreFrozen)
+local function getShotTarget(origin, tool, maxDistance, ignoreFrozen, requireHit)
     local best
 
     for _, player in ipairs(Players:GetPlayers()) do
-        local result = evaluateShotTarget(player, origin, tool, maxDistance, ignoreFrozen)
+        local result = evaluateShotTarget(player, origin, tool, maxDistance, ignoreFrozen, requireHit)
         if result and (not best
             or result.AimAngle < best.AimAngle
             or (result.AimAngle == best.AimAngle and result.Distance < best.Distance)) then
@@ -417,7 +417,8 @@ local function fireFreezeRay()
         attachment.WorldPosition,
         tool,
         SHOT_CONFIG.FreezeMaxDistance,
-        true
+        true,
+        false
     )
 
     if not target or not target.Part or not target.Part.Parent then
@@ -454,7 +455,7 @@ local function firePaintball()
         return false
     end
 
-    local target = getShotTarget(muzzle.WorldPosition, tool, maxDistance, false)
+    local target = getShotTarget(muzzle.WorldPosition, tool, maxDistance, false, true)
     if not target or not target.Part or not target.Part.Parent or not target.Hit then
         return false
     end
@@ -600,7 +601,8 @@ local function setSelectedShotTools(selection)
                 attachment.WorldPosition,
                 tool,
                 SHOT_CONFIG.FreezeMaxDistance,
-                true
+                true,
+                false
             )
             updateShotBeam(target)
         end)
@@ -612,7 +614,7 @@ local shotToolDropdown = Misc:Dropdown({
     Options = {"Freeze Ray", "Paintball Gun"},
     MultiSelect = true,
     Search = false,
-    Value = {},
+    Default = {},
     Flag = "HH_ShotTools",
     Callback = setSelectedShotTools
 })
