@@ -1,4 +1,4 @@
-local BUILD_REVISION = "HH-2026.11.18-r3"
+local BUILD_REVISION = "HH-2026.11.18-r4"
 warn("[Horrific Housing] Loaded build: " .. BUILD_REVISION)
 
 local Players = game:GetService("Players")
@@ -583,6 +583,239 @@ Misc:Toggle({
     Default = false,
     Flag = "HH_AutoFreezeRay",
     Callback = setAutoFreezeRay
+})
+
+-- Paintball Gun Shot Button
+local paintballEnabled = false
+local paintballGui
+local paintballButton
+local paintballLastShot = 0
+
+local PAINTBALL_CONFIG = {
+    MaxAimAngle = FREEZE_CONFIG.MaxAimAngle,
+    ButtonColor = Color3.fromRGB(28, 57, 82),
+    OutlineColor = Color3.fromRGB(75, 190, 255),
+    ActiveColor = Color3.fromRGB(190, 235, 255)
+}
+
+local function getPaintballTool()
+    local character = LocalPlayer.Character
+    local tool = character and character:FindFirstChild("PaintballGun")
+    if tool and tool:IsA("Tool") then
+        return tool
+    end
+end
+
+local function getPaintballParts()
+    local tool = getPaintballTool()
+    local handle = tool and tool:FindFirstChild("Handle")
+    local muzzle = handle and handle:FindFirstChild("Muzzle")
+    local remote = tool and tool:FindFirstChild("onFire")
+    local stats = tool and tool:FindFirstChild("Stats")
+    local range = stats and stats:FindFirstChild("Range")
+    local rate = stats and stats:FindFirstChild("Rate")
+
+    if not tool or not muzzle or not muzzle:IsA("Attachment")
+        or not remote or not remote:IsA("RemoteEvent")
+        or not range or not rate then
+        return nil
+    end
+
+    return tool, muzzle, remote, range.Value, rate.Value
+end
+
+local function evaluatePaintballTarget(player)
+    if player == LocalPlayer or not PlayerDetection.IsAlive(player) then
+        return nil
+    end
+
+    local character = player.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    local camera = workspace.CurrentCamera
+    local tool, muzzle, _, maxDistance = getPaintballParts()
+
+    if not humanoid or humanoid.Health <= 0 or not root
+        or not camera or not tool or not muzzle then
+        return nil
+    end
+
+    local offset = root.Position - muzzle.WorldPosition
+    local distance = offset.Magnitude
+    if distance <= 0 or distance > maxDistance then
+        return nil
+    end
+
+    local cameraDirection = (root.Position - camera.CFrame.Position).Unit
+    local dot = math.clamp(camera.CFrame.LookVector:Dot(cameraDirection), -1, 1)
+    local angle = math.deg(math.acos(dot))
+    if angle > PAINTBALL_CONFIG.MaxAimAngle then
+        return nil
+    end
+
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = {
+        LocalPlayer.Character,
+        tool
+    }
+    params.IgnoreWater = true
+
+    local hit = workspace:Raycast(muzzle.WorldPosition, offset, params)
+    if not hit or not hit.Instance:IsDescendantOf(character) then
+        return nil
+    end
+
+    return {
+        Player = player,
+        Part = root,
+        Hit = hit,
+        AimAngle = angle,
+        Distance = distance
+    }
+end
+
+local function getPaintballTarget()
+    local best
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        local result = evaluatePaintballTarget(player)
+        if result and (not best
+            or result.AimAngle < best.AimAngle
+            or (result.AimAngle == best.AimAngle and result.Distance < best.Distance)) then
+            best = result
+        end
+    end
+
+    return best
+end
+
+local function createPaintballButton()
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "HH_PaintballShot"
+    gui.ResetOnSpawn = false
+    gui.IgnoreGuiInset = true
+    gui.DisplayOrder = 25
+    gui.Parent = PlayerGui
+
+    local button = Instance.new("ImageButton")
+    button.Name = "PaintballButton"
+    button.Size = UDim2.fromOffset(62, 62)
+    button.Position = UDim2.new(1, -88, 0.48, 0)
+    button.AnchorPoint = Vector2.zero
+    button.BackgroundColor3 = PAINTBALL_CONFIG.ButtonColor
+    button.BackgroundTransparency = 0.08
+    button.BorderSizePixel = 0
+    button.Image = ""
+    button.AutoButtonColor = false
+    button.Active = true
+    button.Modal = false
+    button.Parent = gui
+
+    local round = Instance.new("UICorner")
+    round.CornerRadius = UDim.new(1, 0)
+    round.Parent = button
+
+    local outline = Instance.new("UIStroke")
+    outline.Color = PAINTBALL_CONFIG.OutlineColor
+    outline.Thickness = 2
+    outline.Transparency = 0.08
+    outline.Parent = button
+
+    local label = Instance.new("TextLabel")
+    label.Name = "ShotLabel"
+    label.Size = UDim2.fromScale(1, 1)
+    label.BackgroundTransparency = 1
+    label.Text = "SHOT"
+    label.TextColor3 = Color3.fromRGB(225, 245, 255)
+    label.Font = Enum.Font.GothamBold
+    label.TextSize = 13
+    label.Parent = button
+
+    return gui, button
+end
+
+local function firePaintball()
+    if not paintballEnabled then
+        return
+    end
+
+    local tool, muzzle, remote, _, rate = getPaintballParts()
+    if not tool or not muzzle or not remote then
+        return
+    end
+
+    local now = os.clock()
+    if now - paintballLastShot < math.max(tonumber(rate) or 0, 0.05) then
+        return
+    end
+
+    local target = getPaintballTarget()
+    if not target or not target.Part or not target.Part.Parent or not target.Hit then
+        return
+    end
+
+    local origin = muzzle.WorldPosition
+    local offset = target.Hit.Position - origin
+    if offset.Magnitude <= 0 then
+        return
+    end
+
+    local direction = offset.Unit
+    local hit = target.Hit
+    local fired = pcall(function()
+        remote:FireServer(origin, direction, {
+            Position = hit.Position,
+            Normal = hit.Normal,
+            Instance = hit.Instance
+        })
+    end)
+
+    if fired then
+        paintballLastShot = now
+
+        if paintballButton and paintballButton.Parent then
+            local outline = paintballButton:FindFirstChildOfClass("UIStroke")
+            if outline then
+                outline.Color = PAINTBALL_CONFIG.ActiveColor
+                task.delay(0.12, function()
+                    if paintballEnabled and outline.Parent then
+                        outline.Color = PAINTBALL_CONFIG.OutlineColor
+                    end
+                end)
+            end
+        end
+    end
+end
+
+local function stopPaintballButton()
+    paintballEnabled = false
+
+    if paintballGui then
+        paintballGui:Destroy()
+    end
+
+    paintballGui = nil
+    paintballButton = nil
+    paintballLastShot = 0
+end
+
+local function setPaintballButton(enabled)
+    stopPaintballButton()
+    if not enabled then
+        return
+    end
+
+    paintballEnabled = true
+    paintballGui, paintballButton = createPaintballButton()
+    paintballButton.Activated:Connect(firePaintball)
+end
+
+Misc:Toggle({
+    Name = "Paintball Shot Button",
+    Default = false,
+    Flag = "HH_PaintballShotButton",
+    Callback = setPaintballButton
 })
 
 
@@ -1759,6 +1992,7 @@ end)
 
 JL:OnUnload(function()
     stopAutoFreezeRay()
+    stopPaintballButton()
     maxZoomEnabled = false
     LocalPlayer.CameraMaxZoomDistance = originalMaxZoom
     stopAutoFish()
