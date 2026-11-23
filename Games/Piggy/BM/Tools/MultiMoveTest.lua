@@ -262,7 +262,9 @@ local function ModeName()
 end
 
 local function IsMoveMode()
-    return ModeName() == "Move"
+    local mode = BuildingMode:Get()
+    local modeName = tostring(mode):match("([^%.]+)$")
+    return mode == MoveMode or modeName == "Move" or mode == "Move"
 end
 
 local function IsValidBlock(block)
