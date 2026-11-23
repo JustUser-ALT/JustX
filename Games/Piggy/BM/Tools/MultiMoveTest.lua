@@ -17,6 +17,8 @@ local BuildModel = workspace:WaitForChild("BuildModel")
 
 local BuildModeFolder = RS:WaitForChild("BuildMode")
 local BuildingMode = require(BuildModeFolder:WaitForChild("BuildingMode"))
+local Enumeration = require(BuildModeFolder:WaitForChild("Common"):WaitForChild("Enumeration"))
+local MoveModeValue = Enumeration.BuildingMode.Move
 local MoveMode = require(BuildModeFolder:WaitForChild("Modes"):WaitForChild("Move"))
 local ChangedEvent = BuildModeFolder:WaitForChild("Events"):WaitForChild("BuildingModeChanged")
 local PlacementLogic = require(BuildModeFolder:WaitForChild("PlacementLogic"))
@@ -264,7 +266,7 @@ end
 local function IsMoveMode(mode)
     mode = mode or BuildingMode:Get()
     local modeName = tostring(mode):match("([^%.]+)$")
-    return mode == MoveMode or modeName == "Move" or mode == "Move"
+    return mode == MoveModeValue or modeName == "Move" or mode == "Move"
 end
 
 local function IsValidBlock(block)
