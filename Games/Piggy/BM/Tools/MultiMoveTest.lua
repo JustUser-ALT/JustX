@@ -81,15 +81,9 @@ ProxyPart.Parent = ProxyModel
 ProxyModel.PrimaryPart = ProxyPart
 ProxyModel.Parent = workspace
 
--- Use the same independent ScreenGui approach and button dimensions
--- as CloneTool. MultiSelect is contextual UI, not a native toolbar slot.
-local GuiParent
-pcall(function()
-    if type(gethui) == "function" then
-        GuiParent = gethui()
-    end
-end)
-GuiParent = GuiParent or game:GetService("CoreGui")
+-- PlayerGui is the reliable parent in this executor context.
+-- MultiSelect is contextual UI, not a native toolbar slot.
+local GuiParent = PlayerGui
 
 local Gui = Instance.new("ScreenGui")
 Gui.Name = "JustXMultiMoveTest"
@@ -190,9 +184,59 @@ GridDivider.ZIndex = 3
 GridDivider.Visible = false
 GridDivider.Parent = Gui
 
-local GridCorner = Instance.new("UICorner")
-GridCorner.CornerRadius = UDim.new(0, 5)
-GridCorner.Parent = GridDivider
+-- Match the actual Piggy MoveSnap textbox instead of inventing a
+-- separate dark style. The original control lives in BuildGui.Toolbar.
+local BuildGui = PlayerGui:FindFirstChild("BuildGui")
+local Toolbar = BuildGui and BuildGui:FindFirstChild("Toolbar")
+local Exception = Toolbar and Toolbar:FindFirstChild("Exception")
+local MoveSnapTemplate = Exception and Exception:FindFirstChild("MoveSnap")
+
+if MoveSnapTemplate and MoveSnapTemplate:IsA("TextBox") then
+    local styleProperties = {
+        "BackgroundColor3",
+        "BackgroundTransparency",
+        "BorderColor3",
+        "BorderMode",
+        "BorderSizePixel",
+        "TextColor3",
+        "TextTransparency",
+        "TextStrokeColor3",
+        "TextStrokeTransparency",
+        "TextSize",
+        "TextScaled",
+        "TextWrapped",
+        "TextXAlignment",
+        "TextYAlignment",
+        "Font",
+        "ClearTextOnFocus",
+        "PlaceholderColor3",
+        "PlaceholderText"
+    }
+
+    for _, property in ipairs(styleProperties) do
+        pcall(function()
+            GridDivider[property] = MoveSnapTemplate[property]
+        end)
+    end
+
+    local templateSize = MoveSnapTemplate.AbsoluteSize
+    if templateSize.X > 0 and templateSize.Y > 0 then
+        GridDivider.Size = UDim2.fromOffset(templateSize.X, templateSize.Y)
+    end
+
+    for _, child in ipairs(MoveSnapTemplate:GetChildren()) do
+        if child:IsA("UICorner") or child:IsA("UIStroke") or child:IsA("UIGradient") then
+            child:Clone().Parent = GridDivider
+        end
+    end
+else
+    warn("[MultiMoveTest] MoveSnap textbox not found; GridDivider fallback style is active")
+    GridDivider.BackgroundColor3 = Color3.fromRGB(255, 142, 142)
+    GridDivider.BackgroundTransparency = 0
+    GridDivider.TextColor3 = Color3.new(0, 0, 0)
+    GridDivider.TextSize = 12
+    GridDivider.Font = Enum.Font.Gotham
+end
 
 Gui.Parent = GuiParent
 
@@ -283,7 +327,9 @@ local function FindIndex(block)
 end
 
 local function UpdateControls()
-    ToggleLabel.Text = MultiEnabled and "MULTI ON" or "MULTI"
+    -- Keep the short label inside the original Clone-sized button.
+    -- The background color already communicates the enabled state.
+    ToggleLabel.Text = "MULTI"
     Toggle.BackgroundColor3 = MultiEnabled
         and Color3.fromRGB(97, 255, 115)
         or Color3.fromRGB(255, 142, 142)
