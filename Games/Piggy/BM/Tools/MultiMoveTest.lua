@@ -449,46 +449,42 @@ local function MultiMovePlaceBlockAction(self, ...)
         return OriginalPlaceBlockAction(self, ...)
     end
 
-    localtable.insert(Connections, Toggle.Activated:Connect(function()
-    if not IsMoveMode() then return end
-    if not MultiEnabled then
-        MultiEnabled = true
-        GroupArmed = false
-        ClientState.SelectedBlock = nil
-        print("[MultiMoveTest] Selection mode enabled")
-    elseif not GroupArmed then
-        if #Selection < 2 then
-            print("[MultiMoveTest] Select at least 2 blocks before arming")
-            return
-        end
-        GroupArmed = true
-        SetDriver()
-        if UpdateProxyBounds() then
-            SetMoveHandlesAdornee(ProxyModel)
-            print("[MultiMoveTest] Group drag armed; handles centered on group bounds")
-        else
-            GroupArmed = false
-            ClientState.SelectedBlock = nil
-            warn("[MultiMoveTest] Could not calculate group bounds")
-        end
+    local block = GetHoveredBlock()
+    if block then
+        ToggleBlock(block)
     else
-        DisarmGroup()
-        print("[MultiMoveTest] Group drag disarmed; you can select more blocks")
+        print("[MultiMoveTest] Click ignored: no BuildModel block under pointer")
     end
-    UpdateStatus()
-end))
+    return Enum.ContextActionResult.Sink
+end
 
-table.insert(Connections, GridDivider.FocusLost:Connect(function()
-    local parsed = tonumber(GridDivider.Text)
-    if not parsed or parsed <= 0 then
-        GridStep = 1
-    else
-        GridStep = math.clamp(parsed, 0.1, 100)
+local function ApplyGroupDelta()
+    local session = DragSession
+    if not session or not IsValidBlock(session.driver) then return end
+
+    local ok, currentPivot = pcall(function()
+        return session.driver:GetPivot()
+    end)
+    if not ok then return end
+
+    local delta = currentPivot * session.driverStart:Inverse()
+    for block, startPivot in pairs(session.starts) do
+        if block ~= session.driver and IsValidBlock(block) then
+            pcall(function()
+                block:PivotTo(delta * startPivot)
+            end)
+        end
     end
-    GridDivider.Text = tostring(GridStep)
-end))
 
-il
+    if GroupArmed then
+        UpdateProxyBounds()
+    end
+end
+
+local function FindCommitMove()
+    local functionsFolder = RS:FindFirstChild("Functions")
+    if not functionsFolder then
+        return nil
     end
 
     local remote = functionsFolder:FindFirstChild("CommitMove")
@@ -594,6 +590,16 @@ table.insert(Connections, Toggle.Activated:Connect(function()
         print("[MultiMoveTest] Group drag disarmed; you can select more blocks")
     end
     UpdateStatus()
+end))
+
+table.insert(Connections, GridDivider.FocusLost:Connect(function()
+    local parsed = tonumber(GridDivider.Text)
+    if not parsed or parsed <= 0 then
+        GridStep = 1
+    else
+        GridStep = math.clamp(parsed, 0.1, 100)
+    end
+    GridDivider.Text = tostring(GridStep)
 end))
 
 table.insert(Connections, ChangedEvent.Event:Connect(function()
