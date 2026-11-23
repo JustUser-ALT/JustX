@@ -17,6 +17,7 @@ local BuildModel = workspace:WaitForChild("BuildModel")
 
 local BuildModeFolder = RS:WaitForChild("BuildMode")
 local BuildingMode = require(BuildModeFolder:WaitForChild("BuildingMode"))
+local MoveMode = require(BuildModeFolder:WaitForChild("Modes"):WaitForChild("Move"))
 local ChangedEvent = BuildModeFolder:WaitForChild("Events"):WaitForChild("BuildingModeChanged")
 local PlacementLogic = require(BuildModeFolder:WaitForChild("PlacementLogic"))
 local BoxSelectionAdornment = require(
@@ -132,6 +133,54 @@ local GroupArmed = false
 local Cleaned = false
 local DragSession = nil
 local CommitBusy = false
+
+local OriginalMoveUpdate = MoveMode.Update
+local OriginalRawSetAdornee = rawget(MoveHandles, "SetAdornee")
+local RealSetAdornee = MoveHandles.SetAdornee
+
+local function IsGroupArmedForHandles()
+    local selected = ClientState.SelectedBlock
+    return not Cleaned
+        and GroupArmed
+        and typeof(selected) == "Instance"
+        and selected:IsA("Model")
+        and selected.Parent == BuildModel
+        and ProxyModel.Parent == workspace
+end
+
+local function WrappedMoveUpdate(self, ...)
+    if not IsGroupArmedForHandles() then
+        return OriginalMoveUpdate(self, ...)
+    end
+
+    -- Preserve native Move.Update behavior except its attempt to
+    -- replace the group proxy with the single selected driver.
+    rawset(MoveHandles, "SetAdornee", function() end)
+
+    local results = table.pack(pcall(OriginalMoveUpdate, self, ...))
+
+    if OriginalRawSetAdornee ~= nil then
+        rawset(MoveHandles, "SetAdornee", OriginalRawSetAdornee)
+    else
+        rawset(MoveHandles, "SetAdornee", nil)
+    end
+
+    if not results[1] then
+        warn("[MultiMoveTest] Native Move.Update failed:", results[2])
+        error(results[2], 0)
+    end
+
+    if IsGroupArmedForHandles() then
+        local ok, err = pcall(RealSetAdornee, MoveHandles, ProxyModel)
+        if not ok then
+            warn("[MultiMoveTest] Group handle positioning failed:", err)
+        end
+    end
+
+    return table.unpack(results, 2, results.n)
+end
+
+MoveMode.Update = WrappedMoveUpdate
 
 local function ModeName()
     local mode = BuildingMode:Get()
@@ -520,6 +569,16 @@ local function Cleanup()
         ClientState.PlaceBlockAction = OriginalPlaceBlockAction
     end
 
+    if MoveMode.Update == WrappedMoveUpdate then
+        MoveMode.Update = OriginalMoveUpdate
+    end
+
+    if OriginalRawSetAdornee ~= nil then
+        rawset(MoveHandles, "SetAdornee", OriginalRawSetAdornee)
+    else
+        rawset(MoveHandles, "SetAdornee", nil)
+    end
+
     ClearSelection()
     SetMoveHandlesAdornee(
         typeof(OriginalMoveAdornee) == "Instance"
@@ -541,6 +600,7 @@ Env.MultiMoveTestCleanup = Cleanup
 
 print("================================")
 print("[MultiMoveTest] Loaded")
+print("[MultiMoveTest] Group handle centering hook installed")
 print("[MultiMoveTest] Select Move mode and enable SELECT BLOCKS")
 print("[MultiMoveTest] Select 2+ blocks, then tap the button again to arm native handles")
 print("[MultiMoveTest] Tap again to disarm and continue selecting")
