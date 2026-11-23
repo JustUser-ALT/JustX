@@ -90,40 +90,127 @@ Gui.DisplayOrder = 10002
 Gui.Enabled = false
 Gui.Parent = PlayerGui
 
+-- Recreated from the reference game's Multi-Select measurements.
 local Toggle = Instance.new("TextButton")
-Toggle.Name = "MultiMoveToggle"
-Toggle.Size = UDim2.fromOffset(112, 42)
-Toggle.Position = UDim2.new(1, -124, 0.56, 0)
-Toggle.BackgroundColor3 = Color3.fromRGB(42, 46, 55)
+Toggle.Name = "MultiSelect"
+Toggle.Size = UDim2.new(0.061, 0, 0.125, 0)
+Toggle.Position = UDim2.new(0.146, 0, 0.727, 0)
+Toggle.BackgroundColor3 = Color3.fromRGB(255, 94, 94)
 Toggle.BorderSizePixel = 0
-Toggle.Text = "GROUP MOVE OFF"
-Toggle.TextColor3 = Color3.fromRGB(235, 238, 245)
-Toggle.TextSize = 11
+Toggle.AutoButtonColor = false
+Toggle.Text = "MULTI- SELECT: OFF"
+Toggle.TextColor3 = Color3.fromRGB(0, 0, 0)
+Toggle.TextScaled = true
+Toggle.TextWrapped = true
 Toggle.Font = Enum.Font.GothamBold
 Toggle.Visible = false
+Toggle.ZIndex = 3
 Toggle.Parent = Gui
 
 local ToggleCorner = Instance.new("UICorner")
-ToggleCorner.CornerRadius = UDim.new(0, 9)
+ToggleCorner.CornerRadius = UDim.new(0, 8)
 ToggleCorner.Parent = Toggle
 
+local TogglePadding = Instance.new("UIPadding")
+TogglePadding.PaddingLeft = UDim.new(0.05, 0)
+TogglePadding.PaddingRight = UDim.new(0.05, 0)
+TogglePadding.PaddingTop = UDim.new(0.1, 0)
+TogglePadding.PaddingBottom = UDim.new(0.1, 0)
+TogglePadding.Parent = Toggle
+
+local ToggleAspect = Instance.new("UIAspectRatioConstraint")
+ToggleAspect.AspectRatio = 1
+ToggleAspect.DominantAxis = Enum.DominantAxis.Width
+ToggleAspect.Parent = Toggle
+
 local ToggleStroke = Instance.new("UIStroke")
-ToggleStroke.Color = Color3.fromRGB(0, 0, 255)
+ToggleStroke.Color = Color3.fromRGB(35, 35, 35)
 ToggleStroke.Thickness = 1
 ToggleStroke.Transparency = 0.15
 ToggleStroke.Parent = Toggle
 
+local ToggleShadow = Instance.new("ImageLabel")
+ToggleShadow.Name = "DropShadow"
+ToggleShadow.BackgroundTransparency = 1
+ToggleShadow.Image = "rbxassetid://6865151684"
+ToggleShadow.ImageColor3 = Color3.new(0, 0, 0)
+ToggleShadow.ImageTransparency = 0.35
+ToggleShadow.Position = UDim2.new(0.5, 1, 0.5, 1)
+ToggleShadow.Size = UDim2.new(1.125, 22, 1.25, 22)
+ToggleShadow.AnchorPoint = Vector2.new(0.5, 0.5)
+ToggleShadow.ZIndex = 2
+ToggleShadow.Parent = Toggle
+
 local Status = Instance.new("TextLabel")
 Status.Name = "SelectionStatus"
-Status.Size = UDim2.fromOffset(112, 20)
-Status.Position = UDim2.new(1, -124, 0.56, 44)
+Status.Size = UDim2.new(0.11, 0, 0.04, 0)
+Status.Position = UDim2.new(0.146, 0, 0.855, 0)
 Status.BackgroundTransparency = 1
 Status.Text = "0 selected"
-Status.TextColor3 = Color3.fromRGB(220, 225, 235)
+Status.TextColor3 = Color3.fromRGB(235, 238, 245)
 Status.TextSize = 11
+Status.TextScaled = true
 Status.Font = Enum.Font.Gotham
 Status.Visible = false
+Status.ZIndex = 3
 Status.Parent = Gui
+
+-- Visual-only in this pass: does not change native Move snapping.
+local GridLabel = Instance.new("TextLabel")
+GridLabel.Name = "GridDividerLabel"
+GridLabel.Size = UDim2.new(0.0875, 0, 0.115, 0)
+GridLabel.Position = UDim2.new(0.244, 0, 0.646, 0)
+GridLabel.BackgroundTransparency = 1
+GridLabel.Text = "Grid Divider"
+GridLabel.TextColor3 = Color3.fromRGB(235, 238, 245)
+GridLabel.TextScaled = true
+GridLabel.Font = Enum.Font.Gotham
+GridLabel.ZIndex = 3
+GridLabel.Visible = false
+GridLabel.Parent = Gui
+
+local GridDivider = Instance.new("TextBox")
+GridDivider.Name = "GridDivider"
+GridDivider.Size = UDim2.new(0.078, 0, 0.08, 0)
+GridDivider.Position = UDim2.new(0.249, 0, 0.764, 0)
+GridDivider.AnchorPoint = Vector2.new(1, 1)
+GridDivider.BackgroundColor3 = Color3.fromRGB(255, 142, 142)
+GridDivider.BorderSizePixel = 0
+GridDivider.Text = "1"
+GridDivider.PlaceholderText = "grid"
+GridDivider.TextColor3 = Color3.fromRGB(47, 40, 44)
+GridDivider.TextScaled = true
+GridDivider.TextWrapped = true
+GridDivider.Font = Enum.Font.Gotham
+GridDivider.ClearTextOnFocus = false
+GridDivider.ZIndex = 3
+GridDivider.Visible = false
+GridDivider.Parent = Gui
+
+local GridCorner = Instance.new("UICorner")
+GridCorner.CornerRadius = UDim.new(0, 7)
+GridCorner.Parent = GridDivider
+
+local GridPadding = Instance.new("UIPadding")
+GridPadding.PaddingLeft = UDim.new(0, 6)
+GridPadding.PaddingRight = UDim.new(0, 6)
+GridPadding.PaddingTop = UDim.new(0, 6)
+GridPadding.PaddingBottom = UDim.new(0, 6)
+GridPadding.Parent = GridDivider
+
+local GridShadow = Instance.new("ImageLabel")
+GridShadow.Name = "DropShadow"
+GridShadow.BackgroundTransparency = 1
+GridShadow.Image = "rbxassetid://6865151684"
+GridShadow.ImageColor3 = Color3.new(0, 0, 0)
+GridShadow.ImageTransparency = 0.35
+GridShadow.Position = UDim2.new(0.5, 1, 0.5, 1)
+GridShadow.Size = UDim2.new(1, 22, 1, 22)
+GridShadow.AnchorPoint = Vector2.new(0.5, 0.5)
+GridShadow.ZIndex = 2
+GridShadow.Parent = GridDivider
+
+local GridStep = 1
 
 local Selection = {}
 local Outlines = {}
@@ -209,10 +296,11 @@ end
 
 local function UpdateStatus()
     Status.Text = tostring(#Selection) .. " selected"
-    Toggle.Text = not MultiEnabled and "GROUP MOVE OFF" or (GroupArmed and "GROUP ARMED" or "SELECT BLOCKS")
+    Toggle.Text = MultiEnabled and "MULTI- SELECT: ON" or "MULTI- SELECT: OFF"
     Toggle.BackgroundColor3 = MultiEnabled
-        and Color3.fromRGB(55, 105, 78)
-        or Color3.fromRGB(42, 46, 55)
+        and Color3.fromRGB(97, 255, 115)
+        or Color3.fromRGB(255, 94, 94)
+    GridDivider.Text = tostring(GridStep)
 end
 
 local function CreateOutline(block)
@@ -361,42 +449,46 @@ local function MultiMovePlaceBlockAction(self, ...)
         return OriginalPlaceBlockAction(self, ...)
     end
 
-    local block = GetHoveredBlock()
-    if block then
-        ToggleBlock(block)
-    else
-        print("[MultiMoveTest] Click ignored: no BuildModel block under pointer")
-    end
-    return Enum.ContextActionResult.Sink
-end
-
-local function ApplyGroupDelta()
-    local session = DragSession
-    if not session or not IsValidBlock(session.driver) then return end
-
-    local ok, currentPivot = pcall(function()
-        return session.driver:GetPivot()
-    end)
-    if not ok then return end
-
-    local delta = currentPivot * session.driverStart:Inverse()
-    for block, startPivot in pairs(session.starts) do
-        if block ~= session.driver and IsValidBlock(block) then
-            pcall(function()
-                block:PivotTo(delta * startPivot)
-            end)
+    localtable.insert(Connections, Toggle.Activated:Connect(function()
+    if not IsMoveMode() then return end
+    if not MultiEnabled then
+        MultiEnabled = true
+        GroupArmed = false
+        ClientState.SelectedBlock = nil
+        print("[MultiMoveTest] Selection mode enabled")
+    elseif not GroupArmed then
+        if #Selection < 2 then
+            print("[MultiMoveTest] Select at least 2 blocks before arming")
+            return
         end
+        GroupArmed = true
+        SetDriver()
+        if UpdateProxyBounds() then
+            SetMoveHandlesAdornee(ProxyModel)
+            print("[MultiMoveTest] Group drag armed; handles centered on group bounds")
+        else
+            GroupArmed = false
+            ClientState.SelectedBlock = nil
+            warn("[MultiMoveTest] Could not calculate group bounds")
+        end
+    else
+        DisarmGroup()
+        print("[MultiMoveTest] Group drag disarmed; you can select more blocks")
     end
+    UpdateStatus()
+end))
 
-    if GroupArmed then
-        UpdateProxyBounds()
+table.insert(Connections, GridDivider.FocusLost:Connect(function()
+    local parsed = tonumber(GridDivider.Text)
+    if not parsed or parsed <= 0 then
+        GridStep = 1
+    else
+        GridStep = math.clamp(parsed, 0.1, 100)
     end
-end
+    GridDivider.Text = tostring(GridStep)
+end))
 
-local function FindCommitMove()
-    local functionsFolder = RS:FindFirstChild("Functions")
-    if not functionsFolder then
-        return nil
+il
     end
 
     local remote = functionsFolder:FindFirstChild("CommitMove")
@@ -471,6 +563,8 @@ local function UpdateVisibility()
     Gui.Enabled = visible
     Toggle.Visible = visible
     Status.Visible = visible
+    GridLabel.Visible = visible
+    GridDivider.Visible = visible
 end
 
 table.insert(Connections, Toggle.Activated:Connect(function()
