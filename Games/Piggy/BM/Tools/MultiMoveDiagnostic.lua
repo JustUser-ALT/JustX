@@ -83,13 +83,9 @@ ProxyModel.Parent = workspace
 
 -- Use the same independent ScreenGui approach and button dimensions
 -- as CloneTool. MultiSelect is contextual UI, not a native toolbar slot.
-local GuiParent
-pcall(function()
-    if type(gethui) == "function" then
-        GuiParent = gethui()
-    end
-end)
-GuiParent = GuiParent or game:GetService("CoreGui")
+local CoreGui = game:GetService("CoreGui")
+local GuiParent = CoreGui
+print("[MM-DIAG] CORE GUI DIRECT:", CoreGui and CoreGui:GetFullName() or "nil")
 
 print("[MM-DIAG] 01: before ScreenGui creation; parent candidate:", GuiParent and GuiParent:GetFullName() or "nil")
 local Gui = Instance.new("ScreenGui")
