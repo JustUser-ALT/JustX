@@ -79,80 +79,88 @@ ProxyPart.Parent = ProxyModel
 ProxyModel.PrimaryPart = ProxyPart
 ProxyModel.Parent = workspace
 
--- Reuse the original Build Mode toolbar button styling and layout,
--- following the same slot-cloning approach as CopyTool.
-local Toolbar = ClientState.Toolbar
-local BuildingToolbar = Toolbar and Toolbar.BuildingModeToolbar
-assert(BuildingToolbar, "[MultiMoveTest] BuildingModeToolbar not found")
-
-local ToolbarFrame = BuildingToolbar.Instance
-local ToolbarSlots = BuildingToolbar.Slots
-assert(ToolbarFrame and ToolbarSlots and ToolbarSlots[6] and ToolbarSlots[6].Instance,
-    "[MultiMoveTest] Toolbar slot template unavailable")
-
-local ToolbarSlotIndex = 7
-while ToolbarSlots[ToolbarSlotIndex] and ToolbarSlots[ToolbarSlotIndex].Instance do
-    ToolbarSlotIndex += 1
-end
-
-local OriginalToolbarFrameSize = ToolbarFrame.Size
-local OriginalToolbarSlot = ToolbarSlots[ToolbarSlotIndex]
-local ToolbarButton = ToolbarSlots[6].Instance:Clone()
-ToolbarButton.Name = "MultiSelectButton"
-ToolbarButton.LayoutOrder = ToolbarSlotIndex
-ToolbarButton.Position = UDim2.fromOffset(OriginalToolbarFrameSize.X.Offset, 0)
-
-for _, descendant in ipairs(ToolbarButton:GetDescendants()) do
-    if descendant:IsA("ImageLabel") or descendant:IsA("ImageButton") then
-        descendant.Visible = false
+-- Use the same independent ScreenGui approach and button dimensions
+-- as CloneTool. MultiSelect is contextual UI, not a native toolbar slot.
+local GuiParent
+pcall(function()
+    if type(gethui) == "function" then
+        GuiParent = gethui()
     end
-end
+end)
+GuiParent = GuiParent or game:GetService("CoreGui")
 
-local ToggleLabel = Instance.new("TextLabel")
-ToggleLabel.Name = "MultiSelectLabel"
-ToggleLabel.BackgroundTransparency = 1
-ToggleLabel.Size = UDim2.new(1, -8, 1, -8)
-ToggleLabel.Position = UDim2.fromOffset(4, 4)
-ToggleLabel.Font = Enum.Font.GothamBold
-ToggleLabel.Text = "MULTI"
-ToggleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-ToggleLabel.TextScaled = true
-ToggleLabel.TextWrapped = true
-ToggleLabel.ZIndex = ToolbarButton.ZIndex + 2
-ToggleLabel.Parent = ToolbarButton
-
-local ToggleIndicator = Instance.new("Frame")
-ToggleIndicator.Name = "MultiSelectIndicator"
-ToggleIndicator.AnchorPoint = Vector2.new(0.5, 1)
-ToggleIndicator.Position = UDim2.new(0.5, 0, 1, -3)
-ToggleIndicator.Size = UDim2.new(0.45, 0, 0, 3)
-ToggleIndicator.BorderSizePixel = 0
-ToggleIndicator.BackgroundColor3 = Color3.fromRGB(255, 94, 94)
-ToggleIndicator.ZIndex = ToggleLabel.ZIndex
-ToggleIndicator.Parent = ToolbarButton
-
-ToolbarButton.Parent = ToolbarFrame
-ToolbarFrame.Size = UDim2.new(
-    OriginalToolbarFrameSize.X.Scale,
-    OriginalToolbarFrameSize.X.Offset + 80,
-    OriginalToolbarFrameSize.Y.Scale,
-    OriginalToolbarFrameSize.Y.Offset
-)
-ToolbarSlots[ToolbarSlotIndex] = { Instance = ToolbarButton }
-
--- Grid Divider uses the same compact input style and CoreGui placement
--- as CopyTool's step setting, offset farther left so both can coexist.
 local Gui = Instance.new("ScreenGui")
 Gui.Name = "JustXMultiMoveTest"
 Gui.ResetOnSpawn = false
 Gui.IgnoreGuiInset = true
-Gui.DisplayOrder = 10002
+Gui.DisplayOrder = 10001
 Gui.Enabled = false
+
+local Toggle = Instance.new("ImageButton")
+Toggle.Name = "MultiSelectButton"
+Toggle.Size = UDim2.fromOffset(56.316, 56.316)
+Toggle.Position = UDim2.new(0, 72, 1, 0)
+Toggle.AnchorPoint = Vector2.new(0, 1)
+Toggle.BackgroundColor3 = Color3.fromRGB(255, 142, 142)
+Toggle.BackgroundTransparency = 0
+Toggle.BorderSizePixel = 0
+Toggle.Image = ""
+Toggle.AutoButtonColor = true
+Toggle.Active = true
+Toggle.Selectable = true
+Toggle.ZIndex = 1
+Toggle.Parent = Gui
+
+local ToggleCorner = Instance.new("UICorner")
+ToggleCorner.CornerRadius = UDim.new(0, 10)
+ToggleCorner.Parent = Toggle
+
+local ToggleAspect = Instance.new("UIAspectRatioConstraint")
+ToggleAspect.AspectRatio = 1
+ToggleAspect.DominantAxis = Enum.DominantAxis.Width
+ToggleAspect.Parent = Toggle
+
+local ToggleShadow = Instance.new("ImageLabel")
+ToggleShadow.Name = "DropShadow"
+ToggleShadow.Size = UDim2.new(1, 10, 1, 10)
+ToggleShadow.Position = UDim2.new(0.5, 1, 0.5, 1)
+ToggleShadow.AnchorPoint = Vector2.new(0.5, 0.5)
+ToggleShadow.BackgroundTransparency = 1
+ToggleShadow.Image = "rbxassetid://6865151684"
+ToggleShadow.ImageColor3 = Color3.new(0, 0, 0)
+ToggleShadow.ImageTransparency = 0.2
+ToggleShadow.ScaleType = Enum.ScaleType.Slice
+ToggleShadow.ZIndex = 0
+ToggleShadow.Parent = Toggle
+
+local ToggleStroke = Instance.new("UIStroke")
+ToggleStroke.Name = "TutStroke"
+ToggleStroke.Color = Color3.fromRGB(101, 255, 98)
+ToggleStroke.Thickness = 1
+ToggleStroke.Transparency = 0
+ToggleStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+ToggleStroke.Enabled = false
+ToggleStroke.Parent = Toggle
+
+local ToggleLabel = Instance.new("TextLabel")
+ToggleLabel.Name = "TextLabel"
+ToggleLabel.Size = UDim2.fromScale(1, 1)
+ToggleLabel.BackgroundTransparency = 1
+ToggleLabel.Text = "MULTI"
+ToggleLabel.TextColor3 = Color3.new(0, 0, 0)
+ToggleLabel.TextSize = 14
+ToggleLabel.TextScaled = true
+ToggleLabel.Font = Enum.Font.GothamBold
+ToggleLabel.TextXAlignment = Enum.TextXAlignment.Center
+ToggleLabel.TextYAlignment = Enum.TextYAlignment.Center
+ToggleLabel.ZIndex = 2
+ToggleLabel.Parent = Toggle
 
 local GridLabel = Instance.new("TextLabel")
 GridLabel.Name = "GridDividerLabel"
 GridLabel.Size = UDim2.fromOffset(72, 16)
-GridLabel.Position = UDim2.new(1, -130, 0.52, -18)
+GridLabel.Position = UDim2.new(0, 136, 1, -27)
+GridLabel.AnchorPoint = Vector2.new(0, 1)
 GridLabel.BackgroundTransparency = 1
 GridLabel.Text = "Grid Divider"
 GridLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -166,7 +174,8 @@ GridLabel.Parent = Gui
 local GridDivider = Instance.new("TextBox")
 GridDivider.Name = "GridDivider"
 GridDivider.Size = UDim2.fromOffset(55, 25)
-GridDivider.Position = UDim2.new(1, -121, 0.52, 0)
+GridDivider.Position = UDim2.new(0, 136, 1, 0)
+GridDivider.AnchorPoint = Vector2.new(0, 1)
 GridDivider.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
 GridDivider.BorderSizePixel = 0
 GridDivider.Text = "1"
@@ -183,15 +192,8 @@ local GridCorner = Instance.new("UICorner")
 GridCorner.CornerRadius = UDim.new(0, 5)
 GridCorner.Parent = GridDivider
 
-local GuiParent
-pcall(function()
-    if type(gethui) == "function" then
-        GuiParent = gethui()
-    end
-end)
-Gui.Parent = GuiParent or game:GetService("CoreGui")
+Gui.Parent = GuiParent
 
-local Toggle = ToolbarButton
 local GridStep = 1
 
 local Selection = {}
@@ -278,9 +280,9 @@ end
 
 local function UpdateControls()
     ToggleLabel.Text = MultiEnabled and "MULTI ON" or "MULTI"
-    ToggleIndicator.BackgroundColor3 = MultiEnabled
+    Toggle.BackgroundColor3 = MultiEnabled
         and Color3.fromRGB(97, 255, 115)
-        or Color3.fromRGB(255, 94, 94)
+        or Color3.fromRGB(255, 142, 142)
     GridDivider.Text = tostring(GridStep)
 end
 
@@ -669,13 +671,6 @@ local function Cleanup()
     )
     pcall(function() ProxyModel:Destroy() end)
     pcall(function() Gui:Destroy() end)
-
-    if ToolbarSlots[ToolbarSlotIndex]
-        and ToolbarSlots[ToolbarSlotIndex].Instance == ToolbarButton then
-        ToolbarSlots[ToolbarSlotIndex] = OriginalToolbarSlot
-    end
-    pcall(function() ToolbarButton:Destroy() end)
-    pcall(function() ToolbarFrame.Size = OriginalToolbarFrameSize end)
 
     if Env.MultiMoveTestCleanup == Cleanup then
         Env.MultiMoveTestCleanup = nil
