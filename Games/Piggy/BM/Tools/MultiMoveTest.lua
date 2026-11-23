@@ -93,8 +93,8 @@ Gui.Parent = PlayerGui
 -- Recreated from the reference game's Multi-Select measurements.
 local Toggle = Instance.new("TextButton")
 Toggle.Name = "MultiSelect"
-Toggle.Size = UDim2.new(0.061, 0, 0.125, 0)
-Toggle.Position = UDim2.new(0.146, 0, 0.727, 0)
+Toggle.Size = UDim2.fromOffset(56.32, 56.32)
+Toggle.Position = UDim2.fromOffset(135.05, 327.02)
 Toggle.BackgroundColor3 = Color3.fromRGB(255, 94, 94)
 Toggle.BorderSizePixel = 0
 Toggle.AutoButtonColor = false
@@ -123,12 +123,6 @@ ToggleAspect.AspectRatio = 1
 ToggleAspect.DominantAxis = Enum.DominantAxis.Width
 ToggleAspect.Parent = Toggle
 
-local ToggleStroke = Instance.new("UIStroke")
-ToggleStroke.Color = Color3.fromRGB(35, 35, 35)
-ToggleStroke.Thickness = 1
-ToggleStroke.Transparency = 0.15
-ToggleStroke.Parent = Toggle
-
 local ToggleShadow = Instance.new("ImageLabel")
 ToggleShadow.Name = "DropShadow"
 ToggleShadow.BackgroundTransparency = 1
@@ -141,25 +135,11 @@ ToggleShadow.AnchorPoint = Vector2.new(0.5, 0.5)
 ToggleShadow.ZIndex = 2
 ToggleShadow.Parent = Toggle
 
-local Status = Instance.new("TextLabel")
-Status.Name = "SelectionStatus"
-Status.Size = UDim2.new(0.11, 0, 0.04, 0)
-Status.Position = UDim2.new(0.146, 0, 0.855, 0)
-Status.BackgroundTransparency = 1
-Status.Text = "0 selected"
-Status.TextColor3 = Color3.fromRGB(235, 238, 245)
-Status.TextSize = 11
-Status.TextScaled = true
-Status.Font = Enum.Font.Gotham
-Status.Visible = false
-Status.ZIndex = 3
-Status.Parent = Gui
-
 -- Visual-only in this pass: does not change native Move snapping.
 local GridLabel = Instance.new("TextLabel")
 GridLabel.Name = "GridDividerLabel"
-GridLabel.Size = UDim2.new(0.0875, 0, 0.115, 0)
-GridLabel.Position = UDim2.new(0.244, 0, 0.646, 0)
+GridLabel.Size = UDim2.fromOffset(72, 20)
+GridLabel.Position = UDim2.fromOffset(158.5, 286)
 GridLabel.BackgroundTransparency = 1
 GridLabel.Text = "Grid Divider"
 GridLabel.TextColor3 = Color3.fromRGB(235, 238, 245)
@@ -171,8 +151,8 @@ GridLabel.Parent = Gui
 
 local GridDivider = Instance.new("TextBox")
 GridDivider.Name = "GridDivider"
-GridDivider.Size = UDim2.new(0.078, 0, 0.08, 0)
-GridDivider.Position = UDim2.new(0.249, 0, 0.764, 0)
+GridDivider.Size = UDim2.fromOffset(72, 36)
+GridDivider.Position = UDim2.fromOffset(230.5, 344)
 GridDivider.AnchorPoint = Vector2.new(1, 1)
 GridDivider.BackgroundColor3 = Color3.fromRGB(255, 142, 142)
 GridDivider.BorderSizePixel = 0
@@ -294,8 +274,7 @@ local function FindIndex(block)
     end
 end
 
-local function UpdateStatus()
-    Status.Text = tostring(#Selection) .. " selected"
+local function UpdateControls()
     Toggle.Text = MultiEnabled and "MULTI- SELECT: ON" or "MULTI- SELECT: OFF"
     Toggle.BackgroundColor3 = MultiEnabled
         and Color3.fromRGB(97, 255, 115)
@@ -399,7 +378,7 @@ local function DisarmGroup()
     DragSession = nil
     SetMoveHandlesAdornee(nil)
     ClientState.SelectedBlock = nil
-    UpdateStatus()
+    UpdateControls()
 end
 
 local function ClearSelection()
@@ -407,7 +386,7 @@ local function ClearSelection()
         RemoveOutline(block)
     end
     table.clear(Selection)
-    UpdateStatus()
+    UpdateControls()
 end
 
 local function ToggleBlock(block)
@@ -430,7 +409,7 @@ local function ToggleBlock(block)
     DragSession = nil
     SetMoveHandlesAdornee(nil)
     ClientState.SelectedBlock = nil
-    UpdateStatus()
+    UpdateControls()
 end
 
 local function GetHoveredBlock()
@@ -558,7 +537,6 @@ local function UpdateVisibility()
     local visible = IsMoveMode()
     Gui.Enabled = visible
     Toggle.Visible = visible
-    Status.Visible = visible
     GridLabel.Visible = visible
     GridDivider.Visible = visible
 end
@@ -589,7 +567,7 @@ table.insert(Connections, Toggle.Activated:Connect(function()
         DisarmGroup()
         print("[MultiMoveTest] Group drag disarmed; you can select more blocks")
     end
-    UpdateStatus()
+    UpdateControls()
 end))
 
 table.insert(Connections, GridDivider.FocusLost:Connect(function()
@@ -648,12 +626,12 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
             ClientState.SelectedBlock = nil
         end
     end
-    UpdateStatus()
+    UpdateControls()
 end))
 
 ClientState.PlaceBlockAction = MultiMovePlaceBlockAction
 UpdateVisibility()
-UpdateStatus()
+UpdateControls()
 
 local function Cleanup()
     if Cleaned then return end
