@@ -1,6 +1,6 @@
 --==================================================
--- PIGGY BUILD MODE CONCEPTS - UI DISCOVERY
--- Read-only diagnostic. Does not modify game UI or state.
+-- PIGGY BUILD MODE CONCEPTS - TARGETED UI DISCOVERY
+-- Read-only diagnostic. Output capped at 120 lines.
 -- Run inside Piggy Build Mode Concepts.
 --==================================================
 
@@ -10,57 +10,99 @@ local CoreGui = game:GetService("CoreGui")
 local Player = Players.LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
 
+local MAX_LINES = 120
+local KEYWORDS = {
+    "grid", "divider", "multi", "select", "snap",
+    "step", "increment", "move", "resize", "rotate",
+    "toggle", "spacing"
+}
+
+local output = {}
+local seen = {}
+local candidateCount = 0
+
+local function Add(line)
+    if #output < MAX_LINES then
+        table.insert(output, tostring(line))
+    end
+end
+
 local function SafeGet(object, property)
     local ok, value = pcall(function()
         return object[property]
     end)
-    if ok then
-        return tostring(value)
-    end
-    return "?"
+    return ok and tostring(value) or "?"
 end
 
 local function GetPath(object)
     local names = {}
     local current = object
-
     while current and current ~= game do
         table.insert(names, 1, current.Name)
         current = current.Parent
     end
-
     return table.concat(names, ".")
 end
 
-local function IsInterestingTextObject(object)
-    return object:IsA("TextButton")
-        or object:IsA("TextBox")
-        or object:IsA("TextLabel")
-        or object:IsA("ImageButton")
+local function GetText(object)
+    if object:IsA("TextLabel") or object:IsA("TextButton") or object:IsA("TextBox") then
+        return object.Text
+    end
+    return ""
+end
+
+local function IsCandidate(object)
+    if object:IsA("TextBox") then
+        return true, "TEXTBOX"
+    end
+
+    if object:IsA("TextButton") or object:IsA("ImageButton") then
+        local text = (object.Name .. " " .. GetText(object)):lower()
+        for _, keyword in ipairs(KEYWORDS) do
+            if text:find(keyword, 1, true) then
+                return true, "MATCH:" .. keyword
+            end
+        end
+    end
+
+    if object:IsA("TextLabel") then
+        local text = (object.Name .. " " .. GetText(object)):lower()
+        for _, keyword in ipairs(KEYWORDS) do
+            if text:find(keyword, 1, true) then
+                return true, "LABEL:" .. keyword
+            end
+        end
+    end
+
+    return false
 end
 
 local function Describe(object)
-    local details = {
+    local parts = {
         object.ClassName,
         "Name=" .. object.Name
     }
 
-    if object:IsA("TextLabel") or object:IsA("TextButton") or object:IsA("TextBox") then
-        table.insert(details, "Text=" .. string.format("%q", object.Text))
+    local text = GetText(object)
+    if text ~= "" then
+        table.insert(parts, "Text=" .. string.format("%q", text))
     end
 
     if object:IsA("GuiObject") then
-        table.insert(details, "Visible=" .. SafeGet(object, "Visible"))
-        table.insert(details, "Position=" .. SafeGet(object, "Position"))
-        table.insert(details, "Size=" .. SafeGet(object, "Size"))
-        table.insert(details, "AnchorPoint=" .. SafeGet(object, "AnchorPoint"))
+        table.insert(parts, "Visible=" .. SafeGet(object, "Visible"))
+        table.insert(parts, "Size=" .. SafeGet(object, "Size"))
+        table.insert(parts, "Position=" .. SafeGet(object, "Position"))
     end
 
-    if object:IsA("ImageLabel") or object:IsA("ImageButton") then
-        table.insert(details, "Image=" .. SafeGet(object, "Image"))
+    if object:IsA("ImageButton") or object:IsA("ImageLabel") then
+        table.insert(parts, "Image=" .. SafeGet(object, "Image"))
     end
 
-    return table.concat(details, " | ")
+    if object:IsA("GuiObject") then
+        table.insert(parts, "BG=" .. SafeGet(object, "BackgroundColor3"))
+    end
+
+    return table.concat(parts, " | ")
 end
 
 local roots = {
@@ -68,15 +110,11 @@ local roots = {
     {Name = "CoreGui", Object = CoreGui}
 }
 
-local output = {}
-local totalScreens = 0
-local totalControls = 0
-
-table.insert(output, "========== CONCEPTS UI DISCOVERY ==========")
-table.insert(output, "PlaceId=" .. tostring(game.PlaceId))
-table.insert(output, "GameId=" .. tostring(game.GameId))
-table.insert(output, "Player=" .. Player.Name)
-table.insert(output, "")
+Add("========== TARGETED CONCEPTS UI DUMP ==========")
+Add("PlaceId=" .. tostring(game.PlaceId) .. " | GameId=" .. tostring(game.GameId))
+Add("Only matching controls, TextBoxes and nearby parents are listed.")
+Add("Maximum output: " .. MAX_LINES .. " lines.")
+Add("")
 
 for _, root in ipairs(roots) do
     local ok, descendants = pcall(function()
@@ -85,73 +123,45 @@ for _, root in ipairs(roots) do
 
     if ok then
         for _, object in ipairs(descendants) do
-            if object:IsA("ScreenGui") then
-                totalScreens += 1
-                table.insert(output, "[" .. root.Name .. "] ScreenGui: " .. GetPath(object))
-                table.insert(output, "  Enabled=" .. SafeGet(object, "Enabled")
-                    .. " | DisplayOrder=" .. SafeGet(object, "DisplayOrder")
-                    .. " | IgnoreGuiInset=" .. SafeGet(object, "IgnoreGuiInset"))
+            local candidate, reason = IsCandidate(object)
+            if candidate and not seen[object] then
+                seen[object] = true
+                candidateCount += 1
 
-                local guiDescendants = object:GetDescendants()
-                local matches = {}
+                Add("[" .. root.Name .. "] " .. reason)
+                Add(GetPath(object))
+                Add("  " .. Describe(object))
 
-                for _, child in ipairs(guiDescendants) do
-                    if IsInterestingTextObject(child) then
-                        local description = Describe(child)
-                        local searchText = (child.Name .. " " .. description):lower()
-
-                        -- Keep every interactive control and text-bearing object.
-                        -- TextLabels are included only when their text/name looks relevant.
-                        if child:IsA("TextButton")
-                            or child:IsA("TextBox")
-                            or child:IsA("ImageButton")
-                            or searchText:find("grid")
-                            or searchText:find("divider")
-                            or searchText:find("multi")
-                            or searchText:find("select")
-                            or searchText:find("move")
-                            or searchText:find("resize")
-                            or searchText:find("rotate")
-                            or searchText:find("snap")
-                            or searchText:find("step") then
-                            table.insert(matches, child)
-                        end
-                    end
+                -- Include up to three parent levels to reveal the control's UI container.
+                local parent = object.Parent
+                for depth = 1, 3 do
+                    if not parent or parent == root.Object then break end
+                    Add(string.rep("  ", depth) .. "Parent: " .. Describe(parent))
+                    parent = parent.Parent
                 end
-
-                table.insert(output, "  Controls=" .. tostring(#matches))
-
-                for _, child in ipairs(matches) do
-                    totalControls += 1
-                    table.insert(output, "    " .. GetPath(child))
-                    table.insert(output, "      " .. Describe(child))
-
-                    local parent = child.Parent
-                    if parent and parent:IsA("GuiObject") then
-                        table.insert(output, "      Parent: " .. Describe(parent))
-                    end
-                end
-
-                table.insert(output, "")
+                Add("")
             end
         end
     end
 end
 
-table.insert(output, "========== TOTALS ==========")
-table.insert(output, "ScreenGuis=" .. tostring(totalScreens))
-table.insert(output, "Controls=" .. tostring(totalControls))
-table.insert(output, "========== END ==========")
+Add("========== SUMMARY ==========")
+Add("Candidates=" .. tostring(candidateCount))
+Add("PrintedLines=" .. tostring(#output))
+if #output >= MAX_LINES then
+    Add("OUTPUT TRUNCATED: narrow search further if needed.")
+end
+Add("========== END ==========")
 
 local report = table.concat(output, "\n")
 
 if type(setclipboard) == "function" then
-    pcall(setclipboard, report)
-    print("[ConceptsUIDump] Report copied to clipboard.")
+    local ok = pcall(setclipboard, report)
+    Add(ok and "[Clipboard] Report copied." or "[Clipboard] Copy failed.")
 end
 
 for line in report:gmatch("[^\n]+") do
     print(line)
 end
 
-print("[ConceptsUIDump] Finished. Read-only; no UI or game state was changed.")
+print("[ConceptsUIDump] Finished. Read-only; no game state or UI was changed.")
