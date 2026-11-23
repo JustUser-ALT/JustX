@@ -345,23 +345,16 @@ local function ApplyGroupDelta()
 end
 
 local function FindCommitMove()
-    local candidates = {
-        ClientState.Functions,
-        rawget(ClientState, "Functions"),
-        BuildModeFolder:FindFirstChild("Functions")
-    }
-
-    for _, container in ipairs(candidates) do
-        if typeof(container) == "Instance" then
-            local remote = container:FindFirstChild("CommitMove")
-            if remote and remote:IsA("RemoteFunction") then return remote end
-        elseif type(container) == "table" then
-            local remote = rawget(container, "CommitMove")
-            if typeof(remote) == "Instance" and remote:IsA("RemoteFunction") then
-                return remote
-            end
-        end
+    local functionsFolder = RS:FindFirstChild("Functions")
+    if not functionsFolder then
+        return nil
     end
+
+    local remote = functionsFolder:FindFirstChild("CommitMove")
+    if remote and remote:IsA("RemoteFunction") then
+        return remote
+    end
+
     return nil
 end
 
