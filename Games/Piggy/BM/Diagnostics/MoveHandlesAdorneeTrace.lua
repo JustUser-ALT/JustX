@@ -1,7 +1,7 @@
 --==================================================
 -- MOVE HANDLES ADORNEE TRACE
--- Read-only monitor for MultiMoveTest.
--- Hooks MoveHandles:SetAdornee and polls _Adornee/SelectedBlock.
+-- Rate-limited monitor for MultiMoveTest.
+-- Counts frequent SetAdornee calls without flooding the console.
 -- Does not move blocks or alter BuildMode selection.
 --==================================================
 
@@ -40,9 +40,13 @@ assert(type(OriginalSetAdornee) == "function", "[MoveHandlesAdorneeTrace] SetAdo
 local Active = true
 local HookInstalled = false
 local SetCallCount = 0
-local LastSetCallAt = 0
+local SetTargetChangeCount = 0
+local LastReportAt = os.clock()
+local LastTraceAt = 0
 local LastAdornee = rawget(MoveHandles, "_Adornee")
 local LastSelected = rawget(ClientState, "SelectedBlock")
+local LastHookTarget = LastAdornee
+local LastHookTargetDescription = nil
 
 local function Describe(value)
     if typeof(value) == "Instance" then
@@ -95,27 +99,31 @@ end
 
 local function WrappedSetAdornee(self, adornee, ...)
     SetCallCount += 1
-    LastSetCallAt = os.clock()
 
-    print("[MoveHandlesAdorneeTrace] SetAdornee CALL #" .. SetCallCount
-        .. " | target=" .. Describe(adornee))
+    if adornee ~= LastHookTarget then
+        SetTargetChangeCount += 1
+        LastHookTarget = adornee
+        LastHookTargetDescription = Describe(adornee)
 
-    if debug and type(debug.traceback) == "function" then
-        local ok, trace = pcall(debug.traceback, "[MoveHandlesAdorneeTrace] caller", 2)
-        if ok then print(trace) end
-    else
-        print("[MoveHandlesAdorneeTrace] traceback unavailable")
+        -- Print at most one target-change trace per second.
+        if os.clock() - LastTraceAt >= 1 then
+            LastTraceAt = os.clock()
+            print("[MoveHandlesAdorneeTrace] SetAdornee target changed #"
+                .. SetTargetChangeCount .. " | target=" .. LastHookTargetDescription)
+
+            if debug and type(debug.traceback) == "function" then
+                local ok, trace = pcall(debug.traceback, "[MoveHandlesAdorneeTrace] caller (sample)", 2)
+                if ok then print(trace) end
+            end
+        end
     end
 
-    local previous = rawget(self, "_Adornee")
     local packed = table.pack(pcall(OriginalSetAdornee, self, adornee, ...))
     if not packed[1] then
         warn("[MoveHandlesAdorneeTrace] SetAdornee ERROR: " .. tostring(packed[2]))
         error(packed[2], 0)
     end
 
-    local current = rawget(self, "_Adornee")
-    LogAdorneeChange("SetAdornee RESULT", previous, current)
     return table.unpack(packed, 2, packed.n)
 end
 
@@ -131,11 +139,10 @@ else
     print("[MoveHandlesAdorneeTrace] Polling _Adornee only")
 end
 
-print("[MoveHandlesAdorneeTrace] Started")
-print("[MoveHandlesAdorneeTrace] Initial _Adornee: " .. Describe(LastAdornee))
+print("[MoveHandlesAdorneeTrace] Started | initial _Adornee: " .. Describe(LastAdornee))
 print("[MoveHandlesAdorneeTrace] Initial SelectedBlock: " .. Describe(LastSelected))
-print("[MoveHandlesAdorneeTrace] Now enable GROUP MOVE / GROUP ARMED and wait for the arrows to appear.")
-print("[MoveHandlesAdorneeTrace] Monitor runs for 180 seconds. Cleanup: MoveHandlesAdorneeTraceCleanup()")
+print("[MoveHandlesAdorneeTrace] Enable GROUP MOVE / GROUP ARMED, then move/select blocks.")
+print("[MoveHandlesAdorneeTrace] One status line every 5 seconds. Cleanup: MoveHandlesAdorneeTraceCleanup()")
 
 local function Cleanup()
     if not Active then return end
@@ -151,7 +158,8 @@ local function Cleanup()
         Env.MoveHandlesAdorneeTraceCleanup = nil
     end
 
-    print("[MoveHandlesAdorneeTrace] Stopped | SetAdornee calls=" .. SetCallCount)
+    print("[MoveHandlesAdorneeTrace] Stopped | SetAdornee calls="
+        .. SetCallCount .. " | target changes=" .. SetTargetChangeCount)
 end
 
 Env.MoveHandlesAdorneeTraceCleanup = Cleanup
@@ -160,17 +168,12 @@ task.spawn(function()
     local startedAt = os.clock()
 
     while Active and os.clock() - startedAt < 180 do
-        task.wait(0.08)
+        task.wait(0.2)
         if not Active then break end
 
         local currentAdornee = rawget(MoveHandles, "_Adornee")
         if currentAdornee ~= LastAdornee then
-            local capturedRecently = os.clock() - LastSetCallAt < 0.35
-            LogAdorneeChange(
-                capturedRecently and "POLL (after hooked SetAdornee)" or "POLL (change without captured SetAdornee call)",
-                LastAdornee,
-                currentAdornee
-            )
+            LogAdorneeChange("POLL", LastAdornee, currentAdornee)
             LastAdornee = currentAdornee
         end
 
@@ -180,6 +183,14 @@ task.spawn(function()
                 .. Describe(LastSelected) .. " -> " .. Describe(currentSelected))
             LastSelected = currentSelected
         end
+
+        if os.clock() - LastReportAt >= 5 then
+            LastReportAt = os.clock()
+            print("[MoveHandlesAdorneeTrace] STATUS | SetAdornee calls="
+                .. SetCallCount .. " | target changes=" .. SetTargetChangeCount
+                .. " | current _Adornee=" .. Describe(currentAdornee)
+                .. " | SelectedBlock=" .. Describe(currentSelected))
+        end
     end
 
     if Active then
@@ -187,4 +198,3 @@ task.spawn(function()
         Cleanup()
     end
 end)
-
