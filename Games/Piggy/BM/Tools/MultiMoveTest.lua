@@ -261,8 +261,8 @@ local function ModeName()
     return tostring(mode):match("([^%.]+)$") or tostring(mode)
 end
 
-local function IsMoveMode()
-    local mode = BuildingMode:Get()
+local function IsMoveMode(mode)
+    mode = mode or BuildingMode:Get()
     local modeName = tostring(mode):match("([^%.]+)$")
     return mode == MoveMode or modeName == "Move" or mode == "Move"
 end
@@ -539,8 +539,8 @@ local function BeginGroupDrag()
     print("[MultiMoveTest] Group drag started; driver:", driver:GetFullName())
 end
 
-local function UpdateVisibility()
-    local visible = IsMoveMode()
+local function UpdateVisibility(mode)
+    local visible = IsMoveMode(mode)
     Gui.Enabled = visible
     Toggle.Visible = visible
     GridLabel.Visible = visible
@@ -586,8 +586,8 @@ table.insert(Connections, GridDivider.FocusLost:Connect(function()
     GridDivider.Text = tostring(GridStep)
 end))
 
-table.insert(Connections, ChangedEvent.Event:Connect(function()
-    task.defer(UpdateVisibility)
+table.insert(Connections, ChangedEvent.Event:Connect(function(mode)
+    task.defer(UpdateVisibility, mode)
 end))
 
 table.insert(Connections, MoveHandles.MouseButton1Down:Connect(BeginGroupDrag))
