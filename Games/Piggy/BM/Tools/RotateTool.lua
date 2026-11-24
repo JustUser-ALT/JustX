@@ -260,37 +260,42 @@ AdornmentFolder.Name = "JustXRotateGizmo"
 AdornmentFolder.Parent = BuildModeGui:WaitForChild("Frame"):WaitForChild("Adornment")
 
 local Handles = {}
+local Rings = {}
 local ActiveHandle
 local ActiveInputType
 local ActiveTouchInput
 local IsDragging = false
 local DragStartPivot
 local DragAxisWorld
-local DragCenterScreen
-local LastPointerAngle
+local DragOrigin
+local DragPreviousVector
 local TotalDragAngle = 0
 local CurrentPointer
 local CurrentModel
 local HandleDistance = 0
 local CaptureActionName = "JustX_RotateHandleCapture"
 local HitRadius = 26
+
 local TouchScale = {
     None = 0.6,
     Hovering = 0.8,
     Dragging = 0.7
 }
+
 local MouseScale = {
     None = 0.4,
     Hovering = 0.6,
     Dragging = 0.5
 }
+
 local CurrentScale = UserInputService:GetLastInputType() == Enum.UserInputType.Touch
     and TouchScale or MouseScale
 
-UserInputService.LastInputTypeChanged:Connect(function(inputType)
+local InputTypeConnection = UserInputService.LastInputTypeChanged:Connect(function(inputType)
     if inputType == Enum.UserInputType.Touch then
         CurrentScale = TouchScale
-    elseif inputType == Enum.UserInputType.MouseMovement then
+    elseif inputType == Enum.UserInputType.MouseMovement
+        or inputType == Enum.UserInputType.MouseButton1 then
         CurrentScale = MouseScale
     end
 end)
@@ -305,16 +310,22 @@ local function GetCameraScale(worldPosition)
     return math.sin(math.rad(Camera.FieldOfView)) * distance * 0.05
 end
 
-for index, definition in ipairs(HandleDefinitions) do
+-- One cylinder ring per local axis, as in the source RotateDragger.
+for _, axis in ipairs({"X", "Y", "Z"}) do
     local ring = Instance.new("CylinderHandleAdornment")
-    ring.Name = definition.Axis
+    ring.Name = axis
     ring.Adornee = workspace.Terrain
     ring.AlwaysOnTop = true
     ring.ZIndex = 4
-    ring.Color3 = AxisColors[definition.Axis]
+    ring.Color3 = AxisColors[axis]
     ring.Transparency = 0.5
+    ring.Visible = false
     ring.Parent = AdornmentFolder
+    Rings[axis] = ring
+end
 
+-- Six spherical grab points, two on the plane perpendicular to each axis.
+for index, definition in ipairs(HandleDefinitions) do
     local sphere = Instance.new("SphereHandleAdornment")
     sphere.Name = definition.Name
     sphere.Adornee = workspace.Terrain
@@ -322,11 +333,11 @@ for index, definition in ipairs(HandleDefinitions) do
     sphere.ZIndex = 5
     sphere.Color3 = AxisColors[definition.Axis]
     sphere.Transparency = 0.5
+    sphere.Visible = false
     sphere.Parent = AdornmentFolder
 
     Handles[index] = {
         Definition = definition,
-        Ring = ring,
         Sphere = sphere,
         ScreenPosition = Vector2.zero,
         WorldPosition = Vector3.zero,
@@ -335,19 +346,21 @@ for index, definition in ipairs(HandleDefinitions) do
 end
 
 local function HideRotationRing()
-    -- The three native axis rings remain visible while a model is selected.
+    for _, ring in pairs(Rings) do
+        ring.Visible = false
+    end
 end
 
 local function UpdateRotationRing()
-    -- Rotation feedback is provided by the native CylinderHandleAdornment rings.
+    -- Ring transforms are updated together with the six grab points in UpdateGizmo.
 end
 
 local function HideHandles()
     for _, handle in ipairs(Handles) do
         handle.Visible = false
-        handle.Ring.Visible = false
         handle.Sphere.Visible = false
     end
+    HideRotationRing()
 end
 
 local function GetModelSize(model)
@@ -375,11 +388,9 @@ local function SetModel(model)
 end
 
 local function GetScreenPosition(inputObject)
-    -- Touch positions are offset relative to Drawing viewport coordinates
-    -- on this client. Add the top-left GUI inset to align the coordinate spaces.
+    -- ScreenPointToRay and WorldToScreenPoint use the same screen coordinate space.
     local position = inputObject.Position
-    local inset = GuiService:GetGuiInset()
-    return Vector2.new(position.X + inset.X, position.Y + inset.Y)
+    return Vector2.new(position.X, position.Y)
 end
 
 local function FindHandleAt(position)
@@ -399,60 +410,101 @@ local function FindHandleAt(position)
     return closestIndex
 end
 
-local function GetPointerAngle(position, center)
-    local offset = position - center
-    return math.atan2(offset.Y, offset.X)
+local function GetMousePositionOnPlane(position, origin, normal)
+    Camera = workspace.CurrentCamera
+    if not Camera then
+        return nil
+    end
+
+    local ray = Camera:ScreenPointToRay(position.X, position.Y)
+    local denominator = ray.Direction:Dot(normal)
+
+    if math.abs(denominator) < 1e-5 then
+        return nil
+    end
+
+    local distance = (origin - ray.Origin):Dot(normal) / denominator
+    if distance < 0 then
+        return nil
+    end
+
+    local worldPoint = ray.Origin + ray.Direction * distance
+    local vector = worldPoint - origin
+    vector = vector - normal * vector:Dot(normal)
+
+    if vector.Magnitude < 1e-5 then
+        return nil
+    end
+
+    return vector.Unit
+end
+
+local function GetAxisVector(pivot, axis)
+    if axis == "X" then
+        return pivot.RightVector
+    elseif axis == "Y" then
+        return pivot.UpVector
+    end
+
+    return -pivot.LookVector
 end
 
 local function ApplyDrag(position)
-    if not IsDragging or not DragStartPivot or not DragAxisWorld or not DragCenterScreen then
+    if not IsDragging
+        or not DragStartPivot
+        or not DragAxisWorld
+        or not DragOrigin
+        or not DragPreviousVector
+        or not CurrentModel
+        or not CurrentModel.Parent then
         return
     end
 
-    local angle = GetPointerAngle(position, DragCenterScreen)
-    local delta = angle - LastPointerAngle
-
-    if delta > math.pi then
-        delta = delta - math.pi * 2
-    elseif delta < -math.pi then
-        delta = delta + math.pi * 2
+    local currentVector = GetMousePositionOnPlane(position, DragOrigin, DragAxisWorld)
+    if not currentVector then
+        return
     end
 
-    LastPointerAngle = angle
-    TotalDragAngle = TotalDragAngle - delta
+    -- Signed angle around the selected axis: atan2(axis · (previous × current), previous · current).
+    -- This is equivalent to the source's acos(dot) + cross-product sign calculation.
+    local sine = DragAxisWorld:Dot(DragPreviousVector:Cross(currentVector))
+    local cosine = math.clamp(DragPreviousVector:Dot(currentVector), -1, 1)
+    local delta = math.atan2(sine, cosine)
+
+    TotalDragAngle = TotalDragAngle + delta
+    DragPreviousVector = currentVector
 
     local stepRadians = math.rad(RotationStep)
     local snappedAngle = math.round(TotalDragAngle / stepRadians) * stepRadians
     local rotation = CFrame.fromAxisAngle(DragAxisWorld, snappedAngle)
-    local pivotPosition = DragStartPivot.Position
+
     CurrentModel:PivotTo(
-        CFrame.new(pivotPosition)
-        * rotation
-        * CFrame.new(-pivotPosition)
-        * DragStartPivot
+        CFrame.new(DragOrigin)
+            * rotation
+            * CFrame.new(-DragOrigin)
+            * DragStartPivot
     )
 end
 
 local function BeginDrag(handleIndex, position)
+    if not CurrentModel or not CurrentModel.Parent then
+        return false
+    end
+
     local definition = Handles[handleIndex].Definition
     DragStartPivot = CurrentModel:GetPivot()
-    -- The ring plane contains the selected marker axis. Its normal is
-    -- therefore the actual rotation axis for this handle.
-    DragAxisWorld = ({
-        X = -DragStartPivot.LookVector,
-        Y = DragStartPivot.RightVector,
-        Z = DragStartPivot.UpVector
-    })[definition.Axis]
+    DragOrigin = DragStartPivot.Position
+    DragAxisWorld = GetAxisVector(DragStartPivot, definition.Axis).Unit
 
-    local center, onScreen = Camera:WorldToViewportPoint(DragStartPivot.Position)
-    if not onScreen or center.Z <= 0 then
+    -- The source dragger derives the pointer vector from the ray/rotation-plane intersection.
+    DragPreviousVector = GetMousePositionOnPlane(position, DragOrigin, DragAxisWorld)
+    if not DragPreviousVector then
         DragStartPivot = nil
+        DragOrigin = nil
         DragAxisWorld = nil
         return false
     end
 
-    DragCenterScreen = Vector2.new(center.X, center.Y)
-    LastPointerAngle = GetPointerAngle(position, DragCenterScreen)
     TotalDragAngle = 0
     IsDragging = true
     UpdateRotationRing()
@@ -480,19 +532,23 @@ local function FinishDrag()
     HideRotationRing()
     DragStartPivot = nil
     DragAxisWorld = nil
-    DragCenterScreen = nil
-    LastPointerAngle = nil
+    DragOrigin = nil
+    DragPreviousVector = nil
     TotalDragAngle = 0
 end
 
 local function SetActiveHandle(index)
     ActiveHandle = index
+    local activeAxis = index and Handles[index].Definition.Axis or nil
 
     for handleIndex, handle in ipairs(Handles) do
         local active = handleIndex == index
         handle.Sphere.Transparency = active and 0.2 or 0.5
-        handle.Ring.Transparency = active and 0.2 or 0.5
         handle.Sphere.Color3 = AxisColors[handle.Definition.Axis]
+    end
+
+    for axis, ring in pairs(Rings) do
+        ring.Transparency = axis == activeAxis and 0.2 or 0.5
     end
 end
 
@@ -591,43 +647,38 @@ local function UpdateGizmo()
         Z = CFrame.Angles(0, 0, math.rad(90))
     }
 
-    local axisVectors = {
-        X = pivot.RightVector,
-        Y = pivot.UpVector,
-        Z = -pivot.LookVector
-    }
-
-    local pointer = CurrentPointer
-    for _, handle in ipairs(Handles) do
-        local definition = handle.Definition
-        local axis = definition.Axis
-        local direction = definition.Direction
-        local localOffset = direction * (ringRadius + sphereOffset)
-        local worldPosition = (pivot * CFrame.new(localOffset)).Position
-        local screenPosition, onScreen = Camera:WorldToViewportPoint(worldPosition)
-        local visible = onScreen and screenPosition.Z > 0
-
-        handle.Visible = visible
-        handle.WorldPosition = worldPosition
-        handle.ScreenPosition = Vector2.new(screenPosition.X, screenPosition.Y)
-
-        handle.Sphere.Adornee = workspace.Terrain
-        handle.Sphere.CFrame = pivot * CFrame.new(localOffset)
-        handle.Sphere.Radius = math.max(sphereOffset * (CurrentScale.None), 0.025)
-        handle.Sphere.Visible = visible
-
-        local ring = handle.Ring
+    for axis, ring in pairs(Rings) do
         ring.Adornee = workspace.Terrain
         ring.CFrame = pivot * ringRotations[axis]
         ring.Radius = ringRadius
         ring.InnerRadius = math.max(ringRadius - ringHeight, 0)
         ring.Height = ringHeight
         ring.Visible = true
+    end
+
+    local pointer = CurrentPointer
+    for _, handle in ipairs(Handles) do
+        local definition = handle.Definition
+        local localOffset = definition.Direction * (ringRadius + sphereOffset)
+        local worldCFrame = pivot * CFrame.new(localOffset)
+        local worldPosition = worldCFrame.Position
+        local screenPosition, onScreen = Camera:WorldToScreenPoint(worldPosition)
+        local visible = onScreen and screenPosition.Z > 0
+
+        handle.Visible = visible
+        handle.WorldPosition = worldPosition
+        handle.ScreenPosition = Vector2.new(screenPosition.X, screenPosition.Y)
+
+        local sphere = handle.Sphere
+        sphere.Adornee = workspace.Terrain
+        sphere.CFrame = worldCFrame
+        sphere.Visible = visible
 
         local stateScale = CurrentScale.None
         local transparency = 0.5
+
         if IsDragging and ActiveHandle then
-            if Handles[ActiveHandle].Definition.Axis == axis then
+            if Handles[ActiveHandle].Definition.Axis == definition.Axis then
                 stateScale = CurrentScale.Dragging
                 transparency = 0.2
             end
@@ -637,9 +688,16 @@ local function UpdateGizmo()
             transparency = 0.4
         end
 
-        handle.Sphere.Radius = math.max(sphereOffset * stateScale, 0.025)
-        handle.Sphere.Transparency = transparency
-        ring.Transparency = transparency
+        sphere.Radius = math.max(sphereOffset * stateScale, 0.025)
+        sphere.Transparency = transparency
+    end
+
+    for axis, ring in pairs(Rings) do
+        if IsDragging and ActiveHandle and Handles[ActiveHandle].Definition.Axis == axis then
+            ring.Transparency = 0.2
+        else
+            ring.Transparency = 0.5
+        end
     end
 end
 
@@ -890,6 +948,10 @@ function RotateMode:Destroy()
     if InputChangedConnection then
         InputChangedConnection:Disconnect()
         InputChangedConnection = nil
+    end
+    if InputTypeConnection then
+        InputTypeConnection:Disconnect()
+        InputTypeConnection = nil
     end
     HideHandles()
     HideRotationRing()
