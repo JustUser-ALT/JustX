@@ -622,6 +622,26 @@ for index, handle in ipairs(Handles) do
 end
 
 local function CaptureInput(_, inputState, inputObject)
+    -- A touch drag owns the touchscreen until its matching finger is released.
+    -- Sink additional touches too, so the camera cannot start a pinch/rotate gesture.
+    if IsDragging and ActiveInputType == Enum.UserInputType.Touch then
+        if inputState == Enum.UserInputState.Cancel then
+            EndHandleDrag()
+            return Enum.ContextActionResult.Sink
+        end
+
+        if inputObject.UserInputType == Enum.UserInputType.Touch then
+            if inputObject == ActiveTouchInput then
+                if inputState == Enum.UserInputState.Change then
+                    CurrentPointer = GetScreenPosition(inputObject)
+                elseif inputState == Enum.UserInputState.End then
+                    EndHandleDrag()
+                end
+            end
+            return Enum.ContextActionResult.Sink
+        end
+    end
+
     if inputObject.UserInputType ~= Enum.UserInputType.Touch then
         return Enum.ContextActionResult.Pass
     end
@@ -645,19 +665,6 @@ local function CaptureInput(_, inputState, inputObject)
         return Enum.ContextActionResult.Sink
     end
 
-    if ActiveInputType == Enum.UserInputType.Touch and ActiveTouchInput == inputObject then
-        if inputState == Enum.UserInputState.Change then
-            CurrentPointer = GetScreenPosition(inputObject)
-            return Enum.ContextActionResult.Sink
-        end
-
-        if inputState == Enum.UserInputState.End
-            or inputState == Enum.UserInputState.Cancel then
-            EndHandleDrag()
-            return Enum.ContextActionResult.Sink
-        end
-    end
-
     return Enum.ContextActionResult.Pass
 end
 
@@ -672,7 +679,15 @@ local InputChangedConnection = UserInputService.InputChanged:Connect(function(in
         CurrentPointer = Vector2.new(mousePosition.X, mousePosition.Y)
     elseif ActiveInputType == Enum.UserInputType.Touch
         and inputObject.UserInputType == Enum.UserInputType.Touch
-        and ActiveTouchInput then
+        and inputObject == ActiveTouchInput then
+        CurrentPointer = GetScreenPosition(inputObject)
+    end
+end)
+
+local TouchMovedConnection = UserInputService.TouchMoved:Connect(function(inputObject)
+    if IsDragging
+        and ActiveInputType == Enum.UserInputType.Touch
+        and inputObject == ActiveTouchInput then
         CurrentPointer = GetScreenPosition(inputObject)
     end
 end)
@@ -683,6 +698,13 @@ local InputEndedConnection = UserInputService.InputEnded:Connect(function(inputO
         EndHandleDrag()
     elseif ActiveInputType == Enum.UserInputType.Touch
         and inputObject.UserInputType == Enum.UserInputType.Touch
+        and inputObject == ActiveTouchInput then
+        EndHandleDrag()
+    end
+end)
+
+local TouchEndedConnection = UserInputService.TouchEnded:Connect(function(inputObject)
+    if ActiveInputType == Enum.UserInputType.Touch
         and inputObject == ActiveTouchInput then
         EndHandleDrag()
     end
@@ -1026,6 +1048,14 @@ function RotateMode:Destroy()
         InputEndedConnection:Disconnect()
         InputEndedConnection = nil
     end
+    if TouchMovedConnection then
+        TouchMovedConnection:Disconnect()
+        TouchMovedConnection = nil
+    end
+    if TouchEndedConnection then
+        TouchEndedConnection:Disconnect()
+        TouchEndedConnection = nil
+    end
     for _, connection in ipairs(HandleConnections) do
         pcall(function() connection:Disconnect() end)
     end
@@ -1058,7 +1088,7 @@ CAS:BindActionAtPriority(
     CaptureActionName,
     CaptureInput,
     false,
-    3000,
+    4000,
     Enum.UserInputType.Touch
 )
 
