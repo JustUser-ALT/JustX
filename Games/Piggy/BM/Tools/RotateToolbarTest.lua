@@ -1,0 +1,1153 @@
+--==================================================
+-- ROTATE TEST
+-- Native Build Mode Toolbar Integration
+-- Isolated test; does not modify Rotate.lua
+--==================================================
+
+local Players = game:GetService("Players")
+local RS = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local CAS = game:GetService("ContextActionService")
+local GuiService = game:GetService("GuiService")
+local UserInputService = game:GetService("UserInputService")
+
+local Player = Players.LocalPlayer
+local PlayerGui = Player:WaitForChild("PlayerGui")
+local BuildModeGui = PlayerGui:WaitForChild("BuildModeGui")
+
+local BuildModeFolder = RS:WaitForChild("BuildMode")
+local ModesFolder = BuildModeFolder:WaitForChild("Modes")
+local IconsFolder = BuildModeFolder:WaitForChild("Resources"):WaitForChild("BuildingModeIcon")
+local EventsFolder = BuildModeFolder:WaitForChild("Events")
+local ChangedEvent = EventsFolder:WaitForChild("BuildingModeChanged")
+local ShowHint = RS:WaitForChild("Events"):WaitForChild("ShowHint")
+
+-- Independent hover raycast and outline modules.
+local PlacementLogic = require(BuildModeFolder:WaitForChild("PlacementLogic"))
+local BoxSelectionAdornment = require(
+    RS:WaitForChild("Packages")
+        :WaitForChild("CustomAdornments")
+        :WaitForChild("BoxSelectionAdornment")
+)
+
+local Env = getgenv()
+
+--==================================================
+-- CLEANUP PREVIOUS TEST / VISUAL PROTOTYPE
+--==================================================
+
+if type(Env.RotateVisualCleanup) == "function" then
+    pcall(Env.RotateVisualCleanup)
+end
+
+if type(Env.RotateToolbarTestCleanup) == "function" then
+    pcall(Env.RotateToolbarTestCleanup)
+end
+
+--==================================================
+-- FIND CLIENT STATE
+--==================================================
+
+local ClientState
+
+for attempt = 1, 100 do
+    for _, object in ipairs(getgc(true)) do
+        if type(object) == "table"
+        and rawget(object, "ScreenGui") == BuildModeGui
+        and rawget(object, "Toolbar") then
+            ClientState = object
+            break
+        end
+    end
+
+    if ClientState then
+        break
+    end
+
+    task.wait(0.1)
+end
+
+assert(ClientState, "[RotateToolbarTest] ClientState not found")
+
+--==================================================
+-- FIND BUILDING MODE
+--==================================================
+
+local BuildingModeModule = BuildModeFolder:WaitForChild("BuildingMode")
+local BuildingMode = require(BuildingModeModule)
+
+assert(
+    type(BuildingMode.SetMode) == "function",
+    "[RotateToolbarTest] BuildingMode.SetMode missing"
+)
+
+print("[RotateToolbarTest] BuildingMode found:", BuildingMode)
+
+--==================================================
+-- FIND ENUMERATION
+--==================================================
+
+local Enumeration = require(BuildModeFolder:WaitForChild("Common"):WaitForChild("Enumeration"))
+assert(type(Enumeration) == "table" and Enumeration.BuildingMode, "[RotateToolbarTest] Enumeration module invalid")
+
+local BuildingModeEnum = Enumeration.BuildingMode
+local EnumItems = rawget(BuildingModeEnum, "__items")
+local EnumOrdered = rawget(BuildingModeEnum, "__ordered")
+
+assert(type(EnumItems) == "table", "[RotateToolbarTest] Enum items table not found")
+assert(type(EnumOrdered) == "table", "[RotateToolbarTest] Enum ordered table not found")
+
+local RotateEnum = rawget(EnumItems, "Rotate")
+local CreatedEnum = false
+
+if not RotateEnum then
+    RotateEnum = {
+        Name = "Rotate",
+        Value = 9,
+        EnumerationType = "BuildingMode"
+    }
+
+    setmetatable(RotateEnum, {
+        __tostring = function(self)
+            return string.format("Enumeration.%s.%s", self.EnumerationType, self.Name)
+        end
+    })
+
+    rawset(EnumItems, "Rotate", RotateEnum)
+    table.insert(EnumOrdered, RotateEnum)
+    CreatedEnum = true
+end
+
+print("[RotateToolbarTest] Enum registered:", tostring(RotateEnum))
+
+--==================================================
+-- NATIVE PLACE-BLOCK TITLE
+-- BuildModeClient's native title table is local to its event callback.
+-- SetTitle is applied after the native BuildingModeChanged listeners.
+--==================================================
+
+local TitlePatchReady = true
+
+--==================================================
+-- REGISTER ROTATE ICON
+--==================================================
+
+local RotateIcon = IconsFolder:FindFirstChild("Rotate")
+local CreatedIcon = false
+
+if not RotateIcon then
+    RotateIcon = IconsFolder:WaitForChild("Move"):Clone()
+    RotateIcon.Name = "Rotate"
+    if RotateIcon:IsA("ImageLabel") or RotateIcon:IsA("ImageButton") then
+        RotateIcon.Image = "rbxassetid://72311646349060"
+    end
+    RotateIcon.Parent = IconsFolder
+    CreatedIcon = true
+end
+
+--==================================================
+-- FIND RENDER LOOP MODES
+--==================================================
+
+local RenderModes
+
+for _, connection in ipairs(getconnections(RunService.RenderStepped)) do
+    local fn = connection.Function
+
+    if type(fn) == "function" then
+        local success, upvalues = pcall(debug.getupvalues, fn)
+
+        if success and type(upvalues) == "table" then
+            for _, value in pairs(upvalues) do
+                if type(value) == "table"
+                and rawget(value, "Move")
+                and rawget(value, "Resize")
+                and rawget(value, "Select")
+                and rawget(value, "ColorPick") then
+                    RenderModes = value
+                    break
+                end
+            end
+        end
+    end
+
+    if RenderModes then
+        break
+    end
+end
+
+assert(RenderModes, "[RotateToolbarTest] RenderLoop modes table not found")
+
+-- Rotation gizmo adapted from the second game's RotateDragger.
+-- Native HandleAdornment instances replace the old Drawing circles/lines.
+local BuildModel = workspace:WaitForChild("BuildModel")
+local Camera = workspace.CurrentCamera
+local VERSION = "V1.7"
+local Steps = type(Env.JustXPiggyToolSteps) == "table" and Env.JustXPiggyToolSteps or {}
+Env.JustXPiggyToolSteps = Steps
+local RotationStep = tonumber(Steps.Rotate) or 0.1
+Steps.Rotate = RotationStep
+
+local AxisColors = {
+    X = Color3.new(1, 0, 0),
+    Y = Color3.new(0, 1, 0),
+    Z = Color3.new(0, 0, 1)
+}
+
+local HandleDefinitions = {
+    {Name = "Right", Axis = "X", Direction = Vector3.new(0, 0, 1)},
+    {Name = "Left", Axis = "X", Direction = Vector3.new(0, 0, -1)},
+    {Name = "Up", Axis = "Y", Direction = Vector3.new(1, 0, 0)},
+    {Name = "Down", Axis = "Y", Direction = Vector3.new(-1, 0, 0)},
+    {Name = "Back", Axis = "Z", Direction = Vector3.new(0, 1, 0)},
+    {Name = "Front", Axis = "Z", Direction = Vector3.new(0, -1, 0)}
+}
+
+local StepGui = Instance.new("ScreenGui")
+StepGui.Name = "JustXRotateStepSettings"
+StepGui.ResetOnSpawn = false
+StepGui.IgnoreGuiInset = true
+StepGui.DisplayOrder = 10000
+StepGui.Enabled = false
+
+local StepInput = Instance.new("TextBox")
+StepInput.Name = "StepInput"
+StepInput.Size = UDim2.fromOffset(55, 25)
+StepInput.Position = UDim2.new(1, -65, 0.46, 0)
+StepInput.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
+StepInput.BorderSizePixel = 0
+StepInput.TextColor3 = Color3.new(1, 1, 1)
+StepInput.Text = tostring(RotationStep)
+StepInput.PlaceholderText = tostring(RotationStep)
+StepInput.Font = Enum.Font.Gotham
+StepInput.TextSize = 12
+StepInput.ClearTextOnFocus = false
+StepInput.Parent = StepGui
+
+local StepCorner = Instance.new("UICorner")
+StepCorner.CornerRadius = UDim.new(0, 5)
+StepCorner.Parent = StepInput
+
+local GuiParent
+pcall(function()
+    if type(gethui) == "function" then
+        GuiParent = gethui()
+    end
+end)
+StepGui.Parent = GuiParent or PlayerGui
+
+StepInput.FocusLost:Connect(function()
+    local value = tonumber(StepInput.Text)
+    if not value then
+        StepInput.Text = tostring(RotationStep)
+        return
+    end
+
+    RotationStep = math.clamp(value, 0.1, 10)
+    Steps.Rotate = RotationStep
+    StepInput.Text = tostring(RotationStep)
+end)
+
+local VersionLabel = Drawing.new("Text")
+VersionLabel.Text = VERSION
+VersionLabel.Size = 16
+VersionLabel.Position = Vector2.new(12, 12)
+VersionLabel.Color = Color3.fromRGB(255, 255, 255)
+VersionLabel.Outline = true
+VersionLabel.Center = false
+VersionLabel.Visible = true
+pcall(function() VersionLabel.ZIndex = 100 end)
+
+local AdornmentFolder = Instance.new("Folder")
+AdornmentFolder.Name = "JustXRotateGizmo"
+AdornmentFolder.Parent = BuildModeGui:WaitForChild("Frame"):WaitForChild("Adornment")
+
+local Handles = {}
+local ActiveHandle
+local ActiveInputType
+local ActiveTouchInput
+local IsDragging = false
+local DragStartPivot
+local DragAxisWorld
+local DragCenterScreen
+local LastPointerAngle
+local TotalDragAngle = 0
+local CurrentPointer
+local CurrentModel
+local HandleDistance = 0
+local CaptureActionName = "JustX_RotateHandleCapture"
+local HitRadius = 26
+local TouchScale = {
+    None = 0.6,
+    Hovering = 0.8,
+    Dragging = 0.7
+}
+local MouseScale = {
+    None = 0.4,
+    Hovering = 0.6,
+    Dragging = 0.5
+}
+local CurrentScale = UserInputService:GetLastInputType() == Enum.UserInputType.Touch
+    and TouchScale or MouseScale
+
+UserInputService.LastInputTypeChanged:Connect(function(inputType)
+    if inputType == Enum.UserInputType.Touch then
+        CurrentScale = TouchScale
+    elseif inputType == Enum.UserInputType.MouseMovement then
+        CurrentScale = MouseScale
+    end
+end)
+
+local function GetCameraScale(worldPosition)
+    Camera = workspace.CurrentCamera
+    if not Camera then
+        return 0
+    end
+
+    local distance = (Camera.CFrame.Position - worldPosition).Magnitude
+    return math.sin(math.rad(Camera.FieldOfView)) * distance * 0.05
+end
+
+for index, definition in ipairs(HandleDefinitions) do
+    local ring = Instance.new("CylinderHandleAdornment")
+    ring.Name = definition.Axis
+    ring.Adornee = workspace.Terrain
+    ring.AlwaysOnTop = true
+    ring.ZIndex = 4
+    ring.Color3 = AxisColors[definition.Axis]
+    ring.Transparency = 0.5
+    ring.Parent = AdornmentFolder
+
+    local sphere = Instance.new("SphereHandleAdornment")
+    sphere.Name = definition.Name
+    sphere.Adornee = workspace.Terrain
+    sphere.AlwaysOnTop = true
+    sphere.ZIndex = 5
+    sphere.Color3 = AxisColors[definition.Axis]
+    sphere.Transparency = 0.5
+    sphere.Parent = AdornmentFolder
+
+    Handles[index] = {
+        Definition = definition,
+        Ring = ring,
+        Sphere = sphere,
+        ScreenPosition = Vector2.zero,
+        WorldPosition = Vector3.zero,
+        Visible = false
+    }
+end
+
+local function HideRotationRing()
+    -- The three native axis rings remain visible while a model is selected.
+end
+
+local function UpdateRotationRing()
+    -- Rotation feedback is provided by the native CylinderHandleAdornment rings.
+end
+
+local function HideHandles()
+    for _, handle in ipairs(Handles) do
+        handle.Visible = false
+        handle.Ring.Visible = false
+        handle.Sphere.Visible = false
+    end
+end
+
+local function GetModelSize(model)
+    if model:IsA("Model") then
+        local _, size = model:GetBoundingBox()
+        return size
+    elseif model:IsA("BasePart") then
+        return model.Size
+    end
+
+    return Vector3.new(4, 4, 4)
+end
+
+local function SetModel(model)
+    CurrentModel = model
+
+    if not model then
+        HandleDistance = 0
+        HideHandles()
+        return
+    end
+
+    local size = GetModelSize(model)
+    HandleDistance = math.max(size.X, size.Y, size.Z)
+end
+
+local function GetScreenPosition(inputObject)
+    -- Touch positions are offset relative to Drawing viewport coordinates
+    -- on this client. Add the top-left GUI inset to align the coordinate spaces.
+    local position = inputObject.Position
+    local inset = GuiService:GetGuiInset()
+    return Vector2.new(position.X + inset.X, position.Y + inset.Y)
+end
+
+local function FindHandleAt(position)
+    local closestIndex
+    local closestDistance = HitRadius
+
+    for index, handle in ipairs(Handles) do
+        if handle.Visible then
+            local distance = (handle.ScreenPosition - position).Magnitude
+            if distance <= closestDistance then
+                closestDistance = distance
+                closestIndex = index
+            end
+        end
+    end
+
+    return closestIndex
+end
+
+local function GetPointerAngle(position, center)
+    local offset = position - center
+    return math.atan2(offset.Y, offset.X)
+end
+
+local function ApplyDrag(position)
+    if not IsDragging or not DragStartPivot or not DragAxisWorld or not DragCenterScreen then
+        return
+    end
+
+    local angle = GetPointerAngle(position, DragCenterScreen)
+    local delta = angle - LastPointerAngle
+
+    if delta > math.pi then
+        delta = delta - math.pi * 2
+    elseif delta < -math.pi then
+        delta = delta + math.pi * 2
+    end
+
+    LastPointerAngle = angle
+    TotalDragAngle = TotalDragAngle - delta
+
+    local stepRadians = math.rad(RotationStep)
+    local snappedAngle = math.round(TotalDragAngle / stepRadians) * stepRadians
+    local rotation = CFrame.fromAxisAngle(DragAxisWorld, snappedAngle)
+    local pivotPosition = DragStartPivot.Position
+    CurrentModel:PivotTo(
+        CFrame.new(pivotPosition)
+        * rotation
+        * CFrame.new(-pivotPosition)
+        * DragStartPivot
+    )
+end
+
+local function BeginDrag(handleIndex, position)
+    local definition = Handles[handleIndex].Definition
+    DragStartPivot = CurrentModel:GetPivot()
+    -- The ring plane contains the selected marker axis. Its normal is
+    -- therefore the actual rotation axis for this handle.
+    DragAxisWorld = ({
+        X = -DragStartPivot.LookVector,
+        Y = DragStartPivot.RightVector,
+        Z = DragStartPivot.UpVector
+    })[definition.Axis]
+
+    local center, onScreen = Camera:WorldToViewportPoint(DragStartPivot.Position)
+    if not onScreen or center.Z <= 0 then
+        DragStartPivot = nil
+        DragAxisWorld = nil
+        return false
+    end
+
+    DragCenterScreen = Vector2.new(center.X, center.Y)
+    LastPointerAngle = GetPointerAngle(position, DragCenterScreen)
+    TotalDragAngle = 0
+    IsDragging = true
+    UpdateRotationRing()
+    return true
+end
+
+local function FinishDrag()
+    if IsDragging and CurrentModel and CurrentModel.Parent then
+        local functionsFolder = RS:FindFirstChild("Functions")
+        local commitMove = functionsFolder and functionsFolder:FindFirstChild("CommitMove")
+
+        if commitMove then
+            local ok, err = pcall(function()
+                commitMove:InvokeServer(CurrentModel, CurrentModel:GetPivot())
+            end)
+            if not ok then
+                warn("[RotateToolbarTest] CommitMove failed: " .. tostring(err))
+            end
+        else
+            warn("[RotateToolbarTest] RS.Functions.CommitMove not found")
+        end
+    end
+
+    IsDragging = false
+    HideRotationRing()
+    DragStartPivot = nil
+    DragAxisWorld = nil
+    DragCenterScreen = nil
+    LastPointerAngle = nil
+    TotalDragAngle = 0
+end
+
+local function SetActiveHandle(index)
+    ActiveHandle = index
+
+    for handleIndex, handle in ipairs(Handles) do
+        local active = handleIndex == index
+        handle.Sphere.Transparency = active and 0.2 or 0.5
+        handle.Ring.Transparency = active and 0.2 or 0.5
+        handle.Sphere.Color3 = AxisColors[handle.Definition.Axis]
+    end
+end
+
+local function CaptureInput(_, inputState, inputObject)
+    local inputType = inputObject.UserInputType
+
+    if inputState == Enum.UserInputState.Begin then
+        if UserInputService:GetFocusedTextBox() then
+            return Enum.ContextActionResult.Pass
+        end
+
+        if inputType ~= Enum.UserInputType.MouseButton1
+            and inputType ~= Enum.UserInputType.Touch then
+            return Enum.ContextActionResult.Pass
+        end
+
+        local pointer = GetScreenPosition(inputObject)
+        local handleIndex = FindHandleAt(pointer)
+
+        if not handleIndex then
+            return Enum.ContextActionResult.Pass
+        end
+
+        ActiveInputType = inputType
+        ActiveTouchInput = inputType == Enum.UserInputType.Touch and inputObject or nil
+        CurrentPointer = pointer
+        SetActiveHandle(handleIndex)
+        if not BeginDrag(handleIndex, pointer) then
+            SetActiveHandle(nil)
+            ActiveInputType = nil
+            ActiveTouchInput = nil
+            return Enum.ContextActionResult.Pass
+        end
+
+        return Enum.ContextActionResult.Sink
+    end
+
+    if ActiveHandle then
+        if inputType == ActiveInputType then
+            if inputType == Enum.UserInputType.Touch
+                and ActiveTouchInput
+                and inputObject ~= ActiveTouchInput then
+                return Enum.ContextActionResult.Pass
+            end
+
+            if inputState == Enum.UserInputState.Change then
+                if inputType == Enum.UserInputType.Touch then
+                    CurrentPointer = GetScreenPosition(inputObject)
+                end
+                return Enum.ContextActionResult.Sink
+            end
+
+            if inputState == Enum.UserInputState.End
+                or inputState == Enum.UserInputState.Cancel then
+                FinishDrag()
+                SetActiveHandle(nil)
+                ActiveInputType = nil
+                ActiveTouchInput = nil
+                CurrentPointer = nil
+            end
+
+            return Enum.ContextActionResult.Sink
+        end
+    end
+
+    return Enum.ContextActionResult.Pass
+end
+
+local InputChangedConnection = UserInputService.InputChanged:Connect(function(inputObject)
+    if ActiveHandle and ActiveInputType == Enum.UserInputType.MouseButton1
+        and inputObject.UserInputType == Enum.UserInputType.MouseMovement then
+        CurrentPointer = GetScreenPosition(inputObject)
+    elseif ActiveHandle and ActiveInputType == Enum.UserInputType.Touch
+        and ActiveTouchInput then
+        CurrentPointer = GetScreenPosition(ActiveTouchInput)
+    end
+end)
+
+
+local function UpdateGizmo()
+    Camera = workspace.CurrentCamera
+    if not CurrentModel or not CurrentModel.Parent or not Camera then
+        HideHandles()
+        return
+    end
+
+    local pivot = CurrentModel:GetPivot()
+    local size = GetModelSize(CurrentModel)
+    local ringRadius = math.max(size.X, size.Y, size.Z)
+    local sphereOffset = GetCameraScale(pivot.Position)
+    local ringHeight = math.max(sphereOffset * 0.1, 0.001)
+
+    local ringRotations = {
+        X = CFrame.Angles(0, math.rad(90), 0),
+        Y = CFrame.Angles(math.rad(90), 0, 0),
+        Z = CFrame.Angles(0, 0, math.rad(90))
+    }
+
+    local axisVectors = {
+        X = pivot.RightVector,
+        Y = pivot.UpVector,
+        Z = -pivot.LookVector
+    }
+
+    local pointer = CurrentPointer
+    for _, handle in ipairs(Handles) do
+        local definition = handle.Definition
+        local axis = definition.Axis
+        local direction = definition.Direction
+        local localOffset = direction * (ringRadius + sphereOffset)
+        local worldPosition = (pivot * CFrame.new(localOffset)).Position
+        local screenPosition, onScreen = Camera:WorldToViewportPoint(worldPosition)
+        local visible = onScreen and screenPosition.Z > 0
+
+        handle.Visible = visible
+        handle.WorldPosition = worldPosition
+        handle.ScreenPosition = Vector2.new(screenPosition.X, screenPosition.Y)
+
+        handle.Sphere.Adornee = workspace.Terrain
+        handle.Sphere.CFrame = pivot * CFrame.new(localOffset)
+        handle.Sphere.Radius = math.max(sphereOffset * (CurrentScale.None), 0.025)
+        handle.Sphere.Visible = visible
+
+        local ring = handle.Ring
+        ring.Adornee = workspace.Terrain
+        ring.CFrame = pivot * ringRotations[axis]
+        ring.Radius = ringRadius
+        ring.InnerRadius = math.max(ringRadius - ringHeight, 0)
+        ring.Height = ringHeight
+        ring.Visible = true
+
+        local stateScale = CurrentScale.None
+        local transparency = 0.5
+        if IsDragging and ActiveHandle then
+            if Handles[ActiveHandle].Definition.Axis == axis then
+                stateScale = CurrentScale.Dragging
+                transparency = 0.2
+            end
+        elseif pointer and visible
+            and (handle.ScreenPosition - pointer).Magnitude <= HitRadius then
+            stateScale = CurrentScale.Hovering
+            transparency = 0.4
+        end
+
+        handle.Sphere.Radius = math.max(sphereOffset * stateScale, 0.025)
+        handle.Sphere.Transparency = transparency
+        ring.Transparency = transparency
+    end
+end
+
+local function UpdateSelectedModel(selected)
+    if typeof(selected) ~= "Instance"
+        or not selected:IsDescendantOf(BuildModel) then
+        SetModel(nil)
+        return
+    end
+
+    if selected ~= CurrentModel then
+        SetModel(selected)
+    end
+end
+
+--==================================================
+-- ROTATE MODE
+-- Selected block, six-axis rotation gizmo, drag handling and save commit.
+--==================================================
+
+local RotateMode = {
+    Initialized = false,
+    Active = false,
+    ClientState = nil,
+    Placement = nil,
+    Outline = nil,
+    Target = nil
+}
+
+function RotateMode:Init(clientState)
+    self.ClientState = clientState
+
+    self.Placement = PlacementLogic.new()
+    self.Outline = BoxSelectionAdornment.new()
+
+    local adornmentParent = BuildModeGui:WaitForChild("Frame"):WaitForChild("Adornment")
+
+    self.Outline:SetParent(adornmentParent)
+    self.Outline:SetColor(Color3.fromRGB(170, 85, 255))
+    self.Outline:SetThickness(0.03)
+    self.Outline:SetAdornee(nil)
+
+    self.Initialized = true
+    print("[RotateToolbarTest] RotateMode.Init; hover outline ready")
+end
+
+function RotateMode:Enter(clientState)
+    self.ClientState = clientState or self.ClientState
+    self.Active = true
+    self.Target = nil
+
+    if self.Outline then
+        pcall(function()
+            self.Outline:SetAdornee(nil)
+        end)
+    end
+
+    print("[RotateToolbarTest] RotateMode.Enter")
+end
+
+function RotateMode:Exit()
+    if IsDragging then
+        FinishDrag()
+    end
+    SetActiveHandle(nil)
+    ActiveInputType = nil
+    ActiveTouchInput = nil
+    CurrentPointer = nil
+    SetModel(nil)
+    HideHandles()
+    HideRotationRing()
+
+    self.Active = false
+    self.Target = nil
+
+    if self.Outline then
+        pcall(function()
+            self.Outline:SetAdornee(nil)
+        end)
+    end
+
+    if self.ClientState then
+        pcall(function()
+            self.ClientState.BoxSelection:SetAdornee(nil)
+            self.ClientState.BoxSelection:SetColor(Color3.new(0, 0, 1))
+            self.ClientState.MoveHandles:SetAdornee(nil)
+            self.ClientState.SelectedBlock = nil
+        end)
+    end
+
+    print("[RotateToolbarTest] RotateMode.Exit")
+end
+
+function RotateMode:Update(dt, clientState)
+    if not self.Active or not self.Placement or not self.Outline then
+        return
+    end
+
+    self.ClientState = clientState or self.ClientState
+
+    local state = self.ClientState
+    local boxSelection = state and state.BoxSelection
+    if not state or not boxSelection then
+        return
+    end
+
+    -- RenderLoop clears BoxSelection before every mode Update.
+    -- Re-apply the selected outline here, after that clear.
+    local selected = state.SelectedBlock
+    if selected and selected.Parent then
+        boxSelection:SetColor(Color3.fromRGB(170, 85, 255))
+        boxSelection:SetAdornee(selected)
+        self.Outline:SetAdornee(nil)
+        self.Target = nil
+
+        UpdateSelectedModel(selected)
+
+        -- Touch End/Cancel can be missed by the bound action on some mobile clients.
+        -- Watch the original InputObject as a fallback so the active marker never stays white.
+        if ActiveInputType == Enum.UserInputType.Touch
+            and ActiveTouchInput
+            and (ActiveTouchInput.UserInputState == Enum.UserInputState.End
+                or ActiveTouchInput.UserInputState == Enum.UserInputState.Cancel) then
+            if IsDragging then
+                FinishDrag()
+            end
+            SetActiveHandle(nil)
+            ActiveInputType = nil
+            ActiveTouchInput = nil
+            CurrentPointer = nil
+        end
+
+        if ActiveHandle and ActiveInputType == Enum.UserInputType.Touch and ActiveTouchInput then
+            CurrentPointer = GetScreenPosition(ActiveTouchInput)
+        end
+        if IsDragging and CurrentPointer then
+            ApplyDrag(CurrentPointer)
+        end
+        UpdateGizmo()
+        return
+    end
+
+    -- No selected block: fully reset the gizmo, including stale touch/handle state.
+    if IsDragging then
+        FinishDrag()
+    end
+    SetActiveHandle(nil)
+    ActiveInputType = nil
+    ActiveTouchInput = nil
+    CurrentPointer = nil
+    SetModel(nil)
+    HideHandles()
+    HideRotationRing()
+    boxSelection:SetAdornee(nil)
+
+    local raycastOk, result = pcall(function()
+        return self.Placement:Raycast()
+    end)
+
+    local block = nil
+
+    if raycastOk and result and result.Instance then
+        local candidate = result.Instance.Parent
+        local buildModel = workspace:FindFirstChild("BuildModel")
+
+        if candidate
+            and candidate:IsA("Model")
+            and buildModel
+            and candidate.Parent == buildModel then
+            block = candidate
+        end
+    end
+
+    if block ~= self.Target then
+        self.Target = block
+
+        local outlineOk, outlineError = pcall(function()
+            self.Outline:SetAdornee(block)
+        end)
+
+        if not outlineOk then
+            warn("[RotateToolbarTest] Hover outline error:", outlineError)
+        else
+            print(
+                "[RotateToolbarTest] Hover target:",
+                block and block:GetFullName() or "nil"
+            )
+        end
+    end
+end
+
+function RotateMode:Action(clientState)
+    if not self.Active then
+        return Enum.ContextActionResult.Sink
+    end
+
+    self.ClientState = clientState or self.ClientState
+
+    local state = self.ClientState
+    if not state or not self.Placement then
+        return Enum.ContextActionResult.Sink
+    end
+
+    local raycastOk, result = pcall(function()
+        return self.Placement:Raycast()
+    end)
+
+    if not raycastOk or not result or not result.Instance then
+        state.SelectedBlock = nil
+        print("[RotateToolbarTest] Selection cleared: raycast miss")
+        return Enum.ContextActionResult.Sink
+    end
+
+    local block = result.Instance.Parent
+    local buildModel = workspace:FindFirstChild("BuildModel")
+
+    if not block or not buildModel or block.Parent ~= buildModel then
+        print("[RotateToolbarTest] Ignored target outside BuildModel")
+        return Enum.ContextActionResult.Sink
+    end
+
+    if state.SelectedBlock == block then
+        state.SelectedBlock = nil
+        if IsDragging then
+            FinishDrag()
+        end
+        SetActiveHandle(nil)
+        ActiveInputType = nil
+        ActiveTouchInput = nil
+        CurrentPointer = nil
+        SetModel(nil)
+        HideHandles()
+        HideRotationRing()
+        print("[RotateToolbarTest] Deselected:", block:GetFullName())
+    else
+        state.SelectedBlock = block
+        print("[RotateToolbarTest] Selected:", block:GetFullName())
+    end
+
+    return Enum.ContextActionResult.Sink
+end
+
+function RotateMode:Destroy()
+    if IsDragging then
+        FinishDrag()
+    end
+    CAS:UnbindAction(CaptureActionName)
+    if InputChangedConnection then
+        InputChangedConnection:Disconnect()
+        InputChangedConnection = nil
+    end
+    HideHandles()
+    HideRotationRing()
+    pcall(function() AdornmentFolder:Destroy() end)
+    pcall(function() VersionLabel:Remove() end)
+    pcall(function() StepGui:Destroy() end)
+
+    self.Active = false
+    self.Target = nil
+
+    if self.Outline then
+        pcall(function()
+            self.Outline:Destroy()
+        end)
+        self.Outline = nil
+    end
+
+    self.Placement = nil
+    self.Initialized = false
+end
+
+local PreviousRenderMode = rawget(RenderModes, "Rotate")
+RenderModes.Rotate = RotateMode
+RotateMode:Init(ClientState)
+
+CAS:BindActionAtPriority(
+    CaptureActionName,
+    CaptureInput,
+    false,
+    3000,
+    Enum.UserInputType.MouseButton1,
+    Enum.UserInputType.Touch
+)
+
+--==================================================
+-- ROUTE THE MAIN PLACE-BLOCK BUTTON TO ROTATE
+-- Preserve the original dispatcher for every native mode.
+--==================================================
+
+local OriginalPlaceBlockAction = ClientState.PlaceBlockAction
+assert(
+    type(OriginalPlaceBlockAction) == "function",
+    "[RotateToolbarTest] ClientState.PlaceBlockAction missing"
+)
+
+local function RotatePlaceBlockAction(self, ...)
+    local currentMode = BuildingMode:Get()
+
+    if currentMode and currentMode.Name == "Rotate" then
+        return RotateMode:Action(self, ...)
+    end
+
+    return OriginalPlaceBlockAction(self, ...)
+end
+
+ClientState.PlaceBlockAction = RotatePlaceBlockAction
+
+--==================================================
+-- FIND NATIVE TOOLBAR
+--==================================================
+
+local Toolbar = ClientState.Toolbar
+local BuildingToolbar = Toolbar and Toolbar.BuildingModeToolbar
+
+assert(BuildingToolbar, "[RotateToolbarTest] BuildingModeToolbar not found")
+
+local Frame = BuildingToolbar.Instance
+local Slots = BuildingToolbar.Slots
+
+assert(Frame and Slots, "[RotateToolbarTest] Toolbar structure invalid")
+assert(Slots[6] and Slots[6].Instance, "[RotateToolbarTest] Move button not found")
+
+--==================================================
+-- CREATE ROTATE BUTTON
+--==================================================
+
+local Button = Slots[6].Instance:Clone()
+Button.Name = "RotateButton"
+Button.LayoutOrder = 7
+Button.Position = UDim2.fromOffset(444, 0)
+
+local ButtonIcon = Button:FindFirstChild("Move")
+if ButtonIcon then
+    ButtonIcon.Name = "Rotate"
+    if ButtonIcon:IsA("ImageLabel") or ButtonIcon:IsA("ImageButton") then
+        ButtonIcon.Image = "rbxassetid://72311646349060"
+    end
+end
+
+local OriginalFrameSize = Frame.Size
+local OriginalSlot7 = Slots[7]
+
+Button.Parent = Frame
+Frame.Size = UDim2.fromOffset(524, 80)
+
+Slots[7] = {
+    Instance = Button
+}
+
+--==================================================
+-- CONNECTIONS / NATIVE SELECTION BEHAVIOR
+--==================================================
+
+local Connections = {}
+
+local function Connect(connection)
+    table.insert(Connections, connection)
+    return connection
+end
+
+local StepModeConnection = Connect(ChangedEvent.Event:Connect(function(modeName)
+    StepGui.Enabled = modeName == "Rotate"
+end))
+StepGui.Enabled = BuildingMode:Get() == RotateEnum
+
+local SelectedModeName = "rotate tool"
+
+Connect(Button.Activated:Connect(function()
+    print("[RotateToolbarTest] Rotate button pressed")
+
+    -- Match the native toolbar button's feedback.
+    ShowHint:Fire(string.format("Selected %s", SelectedModeName))
+
+    -- Select the custom enum mode.
+    BuildingMode:SetMode(RotateEnum)
+
+    -- Match the native toolbar button's close/cleanup behavior.
+    Frame.Visible = false
+    CAS:UnbindAction("pick_building_mode")
+
+    if type(BuildingToolbar.HideInputIcons) == "function" then
+        BuildingToolbar:HideInputIcons()
+    end
+
+    print("[RotateToolbarTest] Rotate selected")
+end))
+
+Connect(ChangedEvent.Event:Connect(function(modeName)
+    if modeName == "Rotate" then
+        print("[RotateToolbarTest] BuildingModeChanged: Rotate")
+        if not RotateMode.Active then
+            RotateMode:Enter(ClientState)
+        end
+
+        -- BuildModeClient has no native title for the custom enum item.
+        -- Defer until its listener has attempted the native SetTitle call.
+        task.defer(function()
+            if not Cleaned and BuildingMode:Get() == RotateEnum then
+                local ok, err = pcall(function()
+                    CAS:SetTitle("place_block", "Rotate")
+                end)
+                if not ok then
+                    warn("[RotateToolbarTest] Could not set main button title:", err)
+                end
+            end
+        end)
+    elseif RotateMode.Active then
+        print("[RotateToolbarTest] Another mode selected:", modeName)
+        RotateMode:Exit()
+    end
+end))
+
+--==================================================
+-- CLEANUP
+--==================================================
+
+local Cleaned = false
+
+local function Cleanup()
+    if Cleaned then
+        return
+    end
+
+    Cleaned = true
+
+    for _, connection in ipairs(Connections) do
+        pcall(function()
+            connection:Disconnect()
+        end)
+    end
+    table.clear(Connections)
+
+    if RotateMode.Active then
+        pcall(function()
+            RotateMode:Exit(ClientState)
+        end)
+    end
+
+    pcall(function()
+        RotateMode:Destroy()
+    end)
+
+    if BuildingMode:Get() == RotateEnum then
+        pcall(function()
+            BuildingMode:SetMode(Enumeration.BuildingMode.None)
+        end)
+    end
+
+    if rawget(RenderModes, "Rotate") == RotateMode then
+        RenderModes.Rotate = PreviousRenderMode
+    end
+
+    if ClientState.PlaceBlockAction == RotatePlaceBlockAction then
+        ClientState.PlaceBlockAction = OriginalPlaceBlockAction
+    end
+
+    if Slots[7] and Slots[7].Instance == Button then
+        Slots[7] = OriginalSlot7
+    end
+
+    pcall(function()
+        Button:Destroy()
+    end)
+
+    pcall(function()
+        Frame.Size = OriginalFrameSize
+    end)
+
+    if CreatedEnum and rawget(EnumItems, "Rotate") == RotateEnum then
+        rawset(EnumItems, "Rotate", nil)
+
+        for index, item in ipairs(EnumOrdered) do
+            if item == RotateEnum then
+                table.remove(EnumOrdered, index)
+                break
+            end
+        end
+    end
+
+    if CreatedIcon and RotateIcon and RotateIcon.Parent then
+        RotateIcon:Destroy()
+    end
+
+    print("[RotateToolbarTest] Cleanup complete")
+end
+
+--==================================================
+-- GLOBAL REFERENCES
+--==================================================
+
+Env.RotateToolbarTestCleanup = Cleanup
+Env.RotateToolbarTestMode = RotateMode
+Env.RotateToolbarTestEnum = RotateEnum
+
+print("================================")
+print("[RotateToolbarTest] Loaded")
+print("[RotateToolbarTest] Enum: OK")
+print("[RotateToolbarTest] Icon: OK")
+print("[RotateToolbarTest] RenderLoop: OK")
+print("[RotateToolbarTest] Toolbar button: OK")
+print("[RotateToolbarTest] Hover outline: READY")
+print("[RotateToolbarTest] Three native rings + six sphere handles: READY")
+print("[RotateToolbarTest] Drag rotation + CommitMove: READY")
+print("[RotateToolbarTest] Angle step TextBox: READY (0.1 - 10 degrees)")
+print("[RotateToolbarTest] Main action dispatch: OK")
+print("[RotateToolbarTest] Title listener: READY")
+print("[RotateToolbarTest] Select a block, then drag one of the six handles")
+print("================================")
