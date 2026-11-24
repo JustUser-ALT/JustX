@@ -1,7 +1,7 @@
 --==================================================
--- ROTATE TEST
+-- ROTATE TOOL
 -- Native Build Mode Toolbar Integration
--- Isolated test; does not modify Rotate.lua
+-- Piggy Build Mode rotation tool
 --==================================================
 
 local Players = game:GetService("Players")
@@ -40,6 +40,11 @@ if type(Env.RotateVisualCleanup) == "function" then
     pcall(Env.RotateVisualCleanup)
 end
 
+if type(Env.RotateToolCleanup) == "function" then
+    pcall(Env.RotateToolCleanup)
+end
+
+-- Backward cleanup for the previous test build.
 if type(Env.RotateTestCleanup) == "function" then
     pcall(Env.RotateTestCleanup)
 end
@@ -67,7 +72,7 @@ for attempt = 1, 100 do
     task.wait(0.1)
 end
 
-assert(ClientState, "[RotateTest] ClientState not found")
+assert(ClientState, "[RotateTool] ClientState not found")
 
 --==================================================
 -- FIND BUILDING MODE
@@ -78,24 +83,23 @@ local BuildingMode = require(BuildingModeModule)
 
 assert(
     type(BuildingMode.SetMode) == "function",
-    "[RotateTest] BuildingMode.SetMode missing"
+    "[RotateTool] BuildingMode.SetMode missing"
 )
 
-print("[RotateTest] BuildingMode found:", BuildingMode)
 
 --==================================================
 -- FIND ENUMERATION
 --==================================================
 
 local Enumeration = require(BuildModeFolder:WaitForChild("Common"):WaitForChild("Enumeration"))
-assert(type(Enumeration) == "table" and Enumeration.BuildingMode, "[RotateTest] Enumeration module invalid")
+assert(type(Enumeration) == "table" and Enumeration.BuildingMode, "[RotateTool] Enumeration module invalid")
 
 local BuildingModeEnum = Enumeration.BuildingMode
 local EnumItems = rawget(BuildingModeEnum, "__items")
 local EnumOrdered = rawget(BuildingModeEnum, "__ordered")
 
-assert(type(EnumItems) == "table", "[RotateTest] Enum items table not found")
-assert(type(EnumOrdered) == "table", "[RotateTest] Enum ordered table not found")
+assert(type(EnumItems) == "table", "[RotateTool] Enum items table not found")
+assert(type(EnumOrdered) == "table", "[RotateTool] Enum ordered table not found")
 
 local RotateEnum = rawget(EnumItems, "Rotate")
 local CreatedEnum = false
@@ -118,7 +122,6 @@ if not RotateEnum then
     CreatedEnum = true
 end
 
-print("[RotateTest] Enum registered:", tostring(RotateEnum))
 
 --==================================================
 -- NATIVE PLACE-BLOCK TITLE
@@ -173,13 +176,13 @@ for _, connection in ipairs(getconnections(RunService.RenderStepped)) do
     end
 end
 
-assert(RenderModes, "[RotateTest] RenderLoop modes table not found")
+assert(RenderModes, "[RotateTool] RenderLoop modes table not found")
 
 -- Rotation gizmo adapted from the second game's RotateDragger.
 -- Native HandleAdornment instances replace the old Drawing circles/lines.
 local BuildModel = workspace:WaitForChild("BuildModel")
 local Camera = workspace.CurrentCamera
-local VERSION = "V1.7"
+local VERSION = "V1.8"
 local Steps = type(Env.JustXPiggyToolSteps) == "table" and Env.JustXPiggyToolSteps or {}
 Env.JustXPiggyToolSteps = Steps
 local RotationStep = tonumber(Steps.Rotate) or 0.1
@@ -272,7 +275,6 @@ local DragPreviousVector
 local TotalDragAngle = 0
 local CurrentPointer
 local CurrentModel
-local HandleDistance = 0
 local CaptureActionName = "JustX_RotateHandleCapture"
 local HitRadius = 26
 
@@ -378,13 +380,11 @@ local function SetModel(model)
     CurrentModel = model
 
     if not model then
-        HandleDistance = 0
         HideHandles()
         return
     end
 
     local size = GetModelSize(model)
-    HandleDistance = math.max(size.X, size.Y, size.Z)
 end
 
 local function GetScreenPosition(inputObject)
@@ -741,8 +741,7 @@ function RotateMode:Init(clientState)
     self.Outline:SetAdornee(nil)
 
     self.Initialized = true
-    print("[RotateTest] RotateMode.Init; hover outline ready")
-end
+    end
 
 function RotateMode:Enter(clientState)
     self.ClientState = clientState or self.ClientState
@@ -755,8 +754,7 @@ function RotateMode:Enter(clientState)
         end)
     end
 
-    print("[RotateTest] RotateMode.Enter")
-end
+    end
 
 function RotateMode:Exit()
     if IsDragging then
@@ -788,8 +786,7 @@ function RotateMode:Exit()
         end)
     end
 
-    print("[RotateTest] RotateMode.Exit")
-end
+    end
 
 function RotateMode:Update(dt, clientState)
     if not self.Active or not self.Placement or not self.Outline then
@@ -879,13 +876,9 @@ function RotateMode:Update(dt, clientState)
         end)
 
         if not outlineOk then
-            warn("[RotateTest] Hover outline error:", outlineError)
+            warn("[RotateTool] Hover outline error:", outlineError)
         else
-            print(
-                "[RotateTest] Hover target:",
-                block and block:GetFullName() or "nil"
-            )
-        end
+                    end
     end
 end
 
@@ -907,16 +900,14 @@ function RotateMode:Action(clientState)
 
     if not raycastOk or not result or not result.Instance then
         state.SelectedBlock = nil
-        print("[RotateTest] Selection cleared: raycast miss")
-        return Enum.ContextActionResult.Sink
+                return Enum.ContextActionResult.Sink
     end
 
     local block = result.Instance.Parent
     local buildModel = workspace:FindFirstChild("BuildModel")
 
     if not block or not buildModel or block.Parent ~= buildModel then
-        print("[RotateTest] Ignored target outside BuildModel")
-        return Enum.ContextActionResult.Sink
+                return Enum.ContextActionResult.Sink
     end
 
     if state.SelectedBlock == block then
@@ -931,11 +922,9 @@ function RotateMode:Action(clientState)
         SetModel(nil)
         HideHandles()
         HideRotationRing()
-        print("[RotateTest] Deselected:", block:GetFullName())
-    else
+            else
         state.SelectedBlock = block
-        print("[RotateTest] Selected:", block:GetFullName())
-    end
+            end
 
     return Enum.ContextActionResult.Sink
 end
@@ -994,7 +983,7 @@ CAS:BindActionAtPriority(
 local OriginalPlaceBlockAction = ClientState.PlaceBlockAction
 assert(
     type(OriginalPlaceBlockAction) == "function",
-    "[RotateTest] ClientState.PlaceBlockAction missing"
+    "[RotateTool] ClientState.PlaceBlockAction missing"
 )
 
 local function RotatePlaceBlockAction(self, ...)
@@ -1016,13 +1005,13 @@ ClientState.PlaceBlockAction = RotatePlaceBlockAction
 local Toolbar = ClientState.Toolbar
 local BuildingToolbar = Toolbar and Toolbar.BuildingModeToolbar
 
-assert(BuildingToolbar, "[RotateTest] BuildingModeToolbar not found")
+assert(BuildingToolbar, "[RotateTool] BuildingModeToolbar not found")
 
 local Frame = BuildingToolbar.Instance
 local Slots = BuildingToolbar.Slots
 
-assert(Frame and Slots, "[RotateTest] Toolbar structure invalid")
-assert(Slots[6] and Slots[6].Instance, "[RotateTest] Move button not found")
+assert(Frame and Slots, "[RotateTool] Toolbar structure invalid")
+assert(Slots[6] and Slots[6].Instance, "[RotateTool] Move button not found")
 
 --==================================================
 -- CREATE ROTATE BUTTON
@@ -1067,8 +1056,7 @@ StepGui.Enabled = BuildingMode:Get() == RotateEnum
 local SelectedModeName = "rotate tool"
 
 Connect(Button.Activated:Connect(function()
-    print("[RotateTest] Rotate button pressed")
-
+    
     -- Match the native toolbar button's feedback.
     ShowHint:Fire(string.format("Selected %s", SelectedModeName))
 
@@ -1083,13 +1071,11 @@ Connect(Button.Activated:Connect(function()
         BuildingToolbar:HideInputIcons()
     end
 
-    print("[RotateTest] Rotate selected")
-end))
+    end))
 
 Connect(ChangedEvent.Event:Connect(function(modeName)
     if modeName == "Rotate" then
-        print("[RotateTest] BuildingModeChanged: Rotate")
-        if not RotateMode.Active then
+                if not RotateMode.Active then
             RotateMode:Enter(ClientState)
         end
 
@@ -1101,13 +1087,12 @@ Connect(ChangedEvent.Event:Connect(function(modeName)
                     CAS:SetTitle("place_block", "Rotate")
                 end)
                 if not ok then
-                    warn("[RotateTest] Could not set main button title:", err)
+                    warn("[RotateTool] Could not set main button title:", err)
                 end
             end
         end)
     elseif RotateMode.Active then
-        print("[RotateTest] Another mode selected:", modeName)
-        RotateMode:Exit()
+                RotateMode:Exit()
     end
 end))
 
@@ -1182,28 +1167,13 @@ local function Cleanup()
         RotateIcon:Destroy()
     end
 
-    print("[RotateTest] Cleanup complete")
-end
+    end
 
 --==================================================
 -- GLOBAL REFERENCES
 --==================================================
 
 Env.RotateTestCleanup = Cleanup
-Env.RotateTestMode = RotateMode
-Env.RotateTestEnum = RotateEnum
+Env.RotateToolMode = RotateMode
+Env.RotateToolEnum = RotateEnum
 
-print("================================")
-print("[RotateTest] Loaded")
-print("[RotateTest] Enum: OK")
-print("[RotateTest] Icon: OK")
-print("[RotateTest] RenderLoop: OK")
-print("[RotateTest] Toolbar button: OK")
-print("[RotateTest] Hover outline: READY")
-print("[RotateTest] Three native rings + six sphere handles: READY")
-print("[RotateTest] Drag rotation + CommitMove: READY")
-print("[RotateTest] Angle step TextBox: READY (0.1 - 10 degrees)")
-print("[RotateTest] Main action dispatch: OK")
-print("[RotateTest] Title listener: READY")
-print("[RotateTest] Select a block, then drag one of the six handles")
-print("================================")
