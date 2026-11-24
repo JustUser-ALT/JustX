@@ -59,7 +59,7 @@ local Enabled = false
 local Destroyed = false
 
 local function stopRotate()
-    local cleanup = Env.RotateTestCleanup
+    local cleanup = Env.RotateToolCleanup
     if type(cleanup) == "function" then
         local ok, err = pcall(cleanup)
         if not ok then
@@ -80,7 +80,7 @@ local function startRotate()
         assert(type(chunk) == "function", compileError or "RotateTool compile failed")
 
         chunk()
-        assert(type(Env.RotateTestCleanup) == "function", "RotateTool did not register RotateTestCleanup")
+        assert(type(Env.RotateToolCleanup) == "function", "RotateTool did not register RotateToolCleanup")
     end)
 
     if not ok then
