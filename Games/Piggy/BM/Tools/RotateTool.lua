@@ -756,9 +756,27 @@ local function UpdateGizmo()
         sphere.Transparency = transparency
     end
 
+    local hoveredAxes = {}
+    if CurrentScale == MouseScale then
+        for _, handle in ipairs(Handles) do
+            if handle.Hovering then
+                hoveredAxes[handle.Definition.Axis] = true
+            end
+        end
+    elseif CurrentScale == TouchScale and pointer then
+        for _, handle in ipairs(Handles) do
+            if handle.Visible
+                and (handle.ScreenPosition - pointer).Magnitude <= HitRadius then
+                hoveredAxes[handle.Definition.Axis] = true
+            end
+        end
+    end
+
     for axis, ring in pairs(Rings) do
         if IsDragging and ActiveHandle and Handles[ActiveHandle].Definition.Axis == axis then
             ring.Transparency = 0.2
+        elseif hoveredAxes[axis] then
+            ring.Transparency = 0.4
         else
             ring.Transparency = 0.5
         end
