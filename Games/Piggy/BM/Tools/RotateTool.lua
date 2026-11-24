@@ -175,32 +175,29 @@ end
 
 assert(RenderModes, "[RotateTest] RenderLoop modes table not found")
 
--- Rotation gizmo adapted from RotateTool.lua.
-assert(Drawing, "[RotateTest] Drawing API unavailable")
+-- Rotation gizmo adapted from the second game's RotateDragger.
+-- Native HandleAdornment instances replace the old Drawing circles/lines.
 local BuildModel = workspace:WaitForChild("BuildModel")
 local Camera = workspace.CurrentCamera
-local VERSION = "V1.6"
+local VERSION = "V1.7"
 local Steps = type(Env.JustXPiggyToolSteps) == "table" and Env.JustXPiggyToolSteps or {}
 Env.JustXPiggyToolSteps = Steps
 local RotationStep = tonumber(Steps.Rotate) or 0.1
 Steps.Rotate = RotationStep
-local HandleRadius = 13
-local OutlineRadius = 15
 
--- Axis colors: X blue, Y green, Z red.
 local AxisColors = {
-    X = Color3.fromRGB(65, 155, 255),
-    Y = Color3.fromRGB(75, 235, 115),
-    Z = Color3.fromRGB(255, 75, 75)
+    X = Color3.new(1, 0, 0),
+    Y = Color3.new(0, 1, 0),
+    Z = Color3.new(0, 0, 1)
 }
 
 local HandleDefinitions = {
-    {Name = "Right", Axis = "X", Sign = 1},
-    {Name = "Left", Axis = "X", Sign = -1},
-    {Name = "Top", Axis = "Y", Sign = 1},
-    {Name = "Bottom", Axis = "Y", Sign = -1},
-    {Name = "Front", Axis = "Z", Sign = -1},
-    {Name = "Back", Axis = "Z", Sign = 1}
+    {Name = "Right", Axis = "X", Direction = Vector3.new(0, 0, 1)},
+    {Name = "Left", Axis = "X", Direction = Vector3.new(0, 0, -1)},
+    {Name = "Up", Axis = "Y", Direction = Vector3.new(1, 0, 0)},
+    {Name = "Down", Axis = "Y", Direction = Vector3.new(-1, 0, 0)},
+    {Name = "Back", Axis = "Z", Direction = Vector3.new(0, 1, 0)},
+    {Name = "Front", Axis = "Z", Direction = Vector3.new(0, -1, 0)}
 }
 
 local StepGui = Instance.new("ScreenGui")
@@ -234,7 +231,7 @@ pcall(function()
         GuiParent = gethui()
     end
 end)
-StepGui.Parent = GuiParent or game:GetService("CoreGui")
+StepGui.Parent = GuiParent or PlayerGui
 
 StepInput.FocusLost:Connect(function()
     local value = tonumber(StepInput.Text)
@@ -258,6 +255,10 @@ VersionLabel.Center = false
 VersionLabel.Visible = true
 pcall(function() VersionLabel.ZIndex = 100 end)
 
+local AdornmentFolder = Instance.new("Folder")
+AdornmentFolder.Name = "JustXRotateGizmo"
+AdornmentFolder.Parent = BuildModeGui:WaitForChild("Frame"):WaitForChild("Adornment")
+
 local Handles = {}
 local ActiveHandle
 local ActiveInputType
@@ -269,116 +270,90 @@ local DragCenterScreen
 local LastPointerAngle
 local TotalDragAngle = 0
 local CurrentPointer
+local CurrentModel
+local HandleDistance = 0
 local CaptureActionName = "JustX_RotateHandleCapture"
 local HitRadius = 26
-local RotationRingSegments = 48
-local RotationRingRadius = 0.55
-local RotationRing = {}
+local TouchScale = {
+    None = 0.6,
+    Hovering = 0.8,
+    Dragging = 0.7
+}
+local MouseScale = {
+    None = 0.4,
+    Hovering = 0.6,
+    Dragging = 0.5
+}
+local CurrentScale = UserInputService:GetLastInputType() == Enum.UserInputType.Touch
+    and TouchScale or MouseScale
+
+UserInputService.LastInputTypeChanged:Connect(function(inputType)
+    if inputType == Enum.UserInputType.Touch then
+        CurrentScale = TouchScale
+    elseif inputType == Enum.UserInputType.MouseMovement then
+        CurrentScale = MouseScale
+    end
+end)
+
+local function GetCameraScale(worldPosition)
+    Camera = workspace.CurrentCamera
+    if not Camera then
+        return 0
+    end
+
+    local distance = (Camera.CFrame.Position - worldPosition).Magnitude
+    return math.sin(math.rad(Camera.FieldOfView)) * distance * 0.05
+end
 
 for index, definition in ipairs(HandleDefinitions) do
-    local outline = Drawing.new("Circle")
-    outline.Color = Color3.fromRGB(15, 18, 24)
-    outline.Thickness = 2
-    outline.NumSides = 24
-    outline.Radius = OutlineRadius
-    outline.Filled = true
-    outline.Transparency = 1
-    outline.Visible = false
+    local ring = Instance.new("CylinderHandleAdornment")
+    ring.Name = definition.Axis
+    ring.Adornee = workspace.Terrain
+    ring.AlwaysOnTop = true
+    ring.ZIndex = 4
+    ring.Color3 = AxisColors[definition.Axis]
+    ring.Transparency = 0.5
+    ring.Parent = AdornmentFolder
 
-    local fill = Drawing.new("Circle")
-    fill.Color = AxisColors[definition.Axis]
-    fill.Thickness = 1
-    fill.NumSides = 24
-    fill.Radius = HandleRadius
-    fill.Filled = true
-    fill.Transparency = 1
-    fill.Visible = false
+    local sphere = Instance.new("SphereHandleAdornment")
+    sphere.Name = definition.Name
+    sphere.Adornee = workspace.Terrain
+    sphere.AlwaysOnTop = true
+    sphere.ZIndex = 5
+    sphere.Color3 = AxisColors[definition.Axis]
+    sphere.Transparency = 0.5
+    sphere.Parent = AdornmentFolder
 
     Handles[index] = {
         Definition = definition,
-        Outline = outline,
-        Fill = fill
+        Ring = ring,
+        Sphere = sphere,
+        ScreenPosition = Vector2.zero,
+        WorldPosition = Vector3.zero,
+        Visible = false
     }
 end
 
--- A single projected 3D ring is shown only while a handle is held.
--- The ring plane contains the selected handle axis, so it passes through that axis pair.
-for index = 1, RotationRingSegments do
-    local line = Drawing.new("Line")
-    line.Color = Color3.new(1, 1, 1)
-    line.Thickness = 2
-    line.Transparency = 1
-    line.Visible = false
-    pcall(function() line.ZIndex = 90 end)
-    RotationRing[index] = line
-end
-
 local function HideRotationRing()
-    for _, line in ipairs(RotationRing) do
-        line.Visible = false
-    end
+    -- The three native axis rings remain visible while a model is selected.
 end
 
 local function UpdateRotationRing()
-    if not IsDragging or not DragStartPivot or not DragAxisWorld or not Camera then
-        HideRotationRing()
-        return
-    end
-
-    local pivot = DragStartPivot
-    local selectedAxis = Handles[ActiveHandle].Definition.Axis
-    local basisA, basisB
-
-    if selectedAxis == "X" then
-        basisA = pivot.RightVector
-        basisB = pivot.UpVector
-    elseif selectedAxis == "Y" then
-        basisA = pivot.UpVector
-        basisB = -pivot.LookVector
-    else
-        basisA = -pivot.LookVector
-        basisB = pivot.RightVector
-    end
-
-    local center = pivot.Position
-    local radius = math.max(HandleDistance, 1)
-
-    local projected = {}
-    for index = 1, RotationRingSegments do
-        local angle = ((index - 1) / RotationRingSegments) * math.pi * 2
-        local worldPoint = center
-            + basisA * (math.cos(angle) * radius)
-            + basisB * (math.sin(angle) * radius)
-        local screenPoint = Camera:WorldToViewportPoint(worldPoint)
-        projected[index] = {
-            Position = Vector2.new(screenPoint.X, screenPoint.Y),
-            Visible = screenPoint.Z > 0
-        }
-    end
-
-    local ringColor = AxisColors[Handles[ActiveHandle].Definition.Axis]
-    for index, line in ipairs(RotationRing) do
-        local nextIndex = index % RotationRingSegments + 1
-        local first = projected[index]
-        local second = projected[nextIndex]
-
-        line.Color = ringColor
-        line.From = first.Position
-        line.To = second.Position
-        line.Visible = first.Visible and second.Visible
-    end
+    -- Rotation feedback is provided by the native CylinderHandleAdornment rings.
 end
 
 local function HideHandles()
     for _, handle in ipairs(Handles) do
-        handle.Outline.Visible = false
-        handle.Fill.Visible = false
+        handle.Visible = false
+        handle.Ring.Visible = false
+        handle.Sphere.Visible = false
     end
 end
 
 local function GetModelSize(model)
     if model:IsA("Model") then
-        return model:GetExtentsSize()
+        local _, size = model:GetBoundingBox()
+        return size
     elseif model:IsA("BasePart") then
         return model.Size
     end
@@ -396,9 +371,8 @@ local function SetModel(model)
     end
 
     local size = GetModelSize(model)
-    HandleDistance = math.max(size.X, size.Y, size.Z) * 0.65 + 0.5
+    HandleDistance = math.max(size.X, size.Y, size.Z)
 end
-
 
 local function GetScreenPosition(inputObject)
     -- Touch positions are offset relative to Drawing viewport coordinates
@@ -413,8 +387,8 @@ local function FindHandleAt(position)
     local closestDistance = HitRadius
 
     for index, handle in ipairs(Handles) do
-        if handle.Fill.Visible then
-            local distance = (handle.Fill.Position - position).Magnitude
+        if handle.Visible then
+            local distance = (handle.ScreenPosition - position).Magnitude
             if distance <= closestDistance then
                 closestDistance = distance
                 closestIndex = index
@@ -516,13 +490,9 @@ local function SetActiveHandle(index)
 
     for handleIndex, handle in ipairs(Handles) do
         local active = handleIndex == index
-
-        handle.Fill.Radius = active and 18 or HandleRadius
-        handle.Outline.Radius = active and 21 or OutlineRadius
-        handle.Fill.Color = active and Color3.new(1, 1, 1) or AxisColors[handle.Definition.Axis]
-        handle.Outline.Color = active and Color3.fromRGB(20, 20, 20) or Color3.fromRGB(15, 18, 24)
-        handle.Fill.Thickness = active and 3 or 1
-        handle.Outline.Thickness = active and 3 or 2
+        handle.Sphere.Transparency = active and 0.2 or 0.5
+        handle.Ring.Transparency = active and 0.2 or 0.5
+        handle.Sphere.Color3 = AxisColors[handle.Definition.Axis]
     end
 end
 
@@ -603,44 +573,74 @@ end)
 
 
 local function UpdateGizmo()
-    if not CurrentModel or not CurrentModel.Parent or not Camera then
-        HideHandles()
-        HideRotationRing()
-        return
-    end
-
     Camera = workspace.CurrentCamera
-    if not Camera then
+    if not CurrentModel or not CurrentModel.Parent or not Camera then
         HideHandles()
         return
     end
 
     local pivot = CurrentModel:GetPivot()
-    local center = pivot.Position
-    local axes = {
+    local size = GetModelSize(CurrentModel)
+    local ringRadius = math.max(size.X, size.Y, size.Z)
+    local sphereOffset = GetCameraScale(pivot.Position)
+    local ringHeight = math.max(sphereOffset * 0.1, 0.001)
+
+    local ringRotations = {
+        X = CFrame.Angles(0, math.rad(90), 0),
+        Y = CFrame.Angles(math.rad(90), 0, 0),
+        Z = CFrame.Angles(0, 0, math.rad(90))
+    }
+
+    local axisVectors = {
         X = pivot.RightVector,
         Y = pivot.UpVector,
         Z = -pivot.LookVector
     }
 
+    local pointer = CurrentPointer
     for _, handle in ipairs(Handles) do
         local definition = handle.Definition
-        local worldPosition = center
-            + axes[definition.Axis] * (HandleDistance * definition.Sign)
+        local axis = definition.Axis
+        local direction = definition.Direction
+        local localOffset = direction * (ringRadius + sphereOffset)
+        local worldPosition = (pivot * CFrame.new(localOffset)).Position
         local screenPosition, onScreen = Camera:WorldToViewportPoint(worldPosition)
         local visible = onScreen and screenPosition.Z > 0
 
-        handle.Outline.Visible = visible
-        handle.Fill.Visible = visible
+        handle.Visible = visible
+        handle.WorldPosition = worldPosition
+        handle.ScreenPosition = Vector2.new(screenPosition.X, screenPosition.Y)
 
-        if visible then
-            local position = Vector2.new(screenPosition.X, screenPosition.Y)
-            handle.Outline.Position = position
-            handle.Fill.Position = position
+        handle.Sphere.Adornee = workspace.Terrain
+        handle.Sphere.CFrame = pivot * CFrame.new(localOffset)
+        handle.Sphere.Radius = math.max(sphereOffset * (CurrentScale.None), 0.025)
+        handle.Sphere.Visible = visible
+
+        local ring = handle.Ring
+        ring.Adornee = workspace.Terrain
+        ring.CFrame = pivot * ringRotations[axis]
+        ring.Radius = ringRadius
+        ring.InnerRadius = math.max(ringRadius - ringHeight, 0)
+        ring.Height = ringHeight
+        ring.Visible = true
+
+        local stateScale = CurrentScale.None
+        local transparency = 0.5
+        if IsDragging and ActiveHandle then
+            if Handles[ActiveHandle].Definition.Axis == axis then
+                stateScale = CurrentScale.Dragging
+                transparency = 0.2
+            end
+        elseif pointer and visible
+            and (handle.ScreenPosition - pointer).Magnitude <= HitRadius then
+            stateScale = CurrentScale.Hovering
+            transparency = 0.4
         end
-    end
 
-    UpdateRotationRing()
+        handle.Sphere.Radius = math.max(sphereOffset * stateScale, 0.025)
+        handle.Sphere.Transparency = transparency
+        ring.Transparency = transparency
+    end
 end
 
 local function UpdateSelectedModel(selected)
@@ -893,13 +893,7 @@ function RotateMode:Destroy()
     end
     HideHandles()
     HideRotationRing()
-    for _, handle in ipairs(Handles) do
-        pcall(function() handle.Outline:Remove() end)
-        pcall(function() handle.Fill:Remove() end)
-    end
-    for _, line in ipairs(RotationRing) do
-        pcall(function() line:Remove() end)
-    end
+    pcall(function() AdornmentFolder:Destroy() end)
     pcall(function() VersionLabel:Remove() end)
     pcall(function() StepGui:Destroy() end)
 
@@ -1144,7 +1138,7 @@ print("[RotateTest] Icon: OK")
 print("[RotateTest] RenderLoop: OK")
 print("[RotateTest] Toolbar button: OK")
 print("[RotateTest] Hover outline: READY")
-print("[RotateTest] Six rotation handles: READY")
+print("[RotateTest] Three native rings + six sphere handles: READY")
 print("[RotateTest] Drag rotation + CommitMove: READY")
 print("[RotateTest] Angle step TextBox: READY (0.1 - 10 degrees)")
 print("[RotateTest] Main action dispatch: OK")
