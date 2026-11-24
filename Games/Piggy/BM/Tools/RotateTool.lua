@@ -1167,12 +1167,19 @@ local function Cleanup()
         RotateIcon:Destroy()
     end
 
+    if Env.RotateToolCleanup == Cleanup then
+        Env.RotateToolCleanup = nil
     end
+    if Env.RotateTestCleanup == Cleanup then
+        Env.RotateTestCleanup = nil
+    end
+end
 
 --==================================================
 -- GLOBAL REFERENCES
 --==================================================
 
+Env.RotateToolCleanup = Cleanup
 Env.RotateTestCleanup = Cleanup
 Env.RotateToolMode = RotateMode
 Env.RotateToolEnum = RotateEnum
