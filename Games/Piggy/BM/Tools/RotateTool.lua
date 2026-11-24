@@ -293,6 +293,8 @@ local MouseScale = {
 local CurrentScale = UserInputService:GetLastInputType() == Enum.UserInputType.Touch
     and TouchScale or MouseScale
 
+local HandleConnections = {}
+
 local InputTypeConnection = UserInputService.LastInputTypeChanged:Connect(function(inputType)
     if inputType == Enum.UserInputType.Touch then
         CurrentScale = TouchScale
@@ -343,7 +345,8 @@ for index, definition in ipairs(HandleDefinitions) do
         Sphere = sphere,
         ScreenPosition = Vector2.zero,
         WorldPosition = Vector3.zero,
-        Visible = false
+        Visible = false,
+        Hovering = false
     }
 end
 
@@ -552,16 +555,79 @@ local function SetActiveHandle(index)
     end
 end
 
+local function StartHandleDrag(handleIndex, inputType, pointer, touchInput)
+    if IsDragging or not CurrentModel or not CurrentModel.Parent then
+        return false
+    end
+
+    ActiveInputType = inputType
+    ActiveTouchInput = touchInput
+    CurrentPointer = pointer
+    SetActiveHandle(handleIndex)
+
+    if not BeginDrag(handleIndex, pointer) then
+        SetActiveHandle(nil)
+        ActiveInputType = nil
+        ActiveTouchInput = nil
+        CurrentPointer = nil
+        return false
+    end
+
+    return true
+end
+
+local function EndHandleDrag()
+    if IsDragging then
+        FinishDrag()
+    end
+
+    SetActiveHandle(nil)
+    ActiveInputType = nil
+    ActiveTouchInput = nil
+    CurrentPointer = nil
+end
+
+-- The source RotateDragger receives mouse input directly from the six SphereHandleAdornments.
+-- Touch is routed separately because HandleAdornment mouse events are mouse-only.
+for index, handle in ipairs(Handles) do
+    local sphere = handle.Sphere
+
+    table.insert(HandleConnections, sphere.MouseEnter:Connect(function()
+        handle.Hovering = true
+    end))
+
+    table.insert(HandleConnections, sphere.MouseLeave:Connect(function()
+        handle.Hovering = false
+    end))
+
+    table.insert(HandleConnections, sphere.MouseButton1Down:Connect(function()
+        if UserInputService:GetFocusedTextBox() then
+            return
+        end
+
+        local mousePosition = UserInputService:GetMouseLocation()
+        StartHandleDrag(
+            index,
+            Enum.UserInputType.MouseButton1,
+            Vector2.new(mousePosition.X, mousePosition.Y),
+            nil
+        )
+    end))
+
+    table.insert(HandleConnections, sphere.MouseButton1Up:Connect(function()
+        if ActiveInputType == Enum.UserInputType.MouseButton1 then
+            EndHandleDrag()
+        end
+    end))
+end
+
 local function CaptureInput(_, inputState, inputObject)
-    local inputType = inputObject.UserInputType
+    if inputObject.UserInputType ~= Enum.UserInputType.Touch then
+        return Enum.ContextActionResult.Pass
+    end
 
     if inputState == Enum.UserInputState.Begin then
         if UserInputService:GetFocusedTextBox() then
-            return Enum.ContextActionResult.Pass
-        end
-
-        if inputType ~= Enum.UserInputType.MouseButton1
-            and inputType ~= Enum.UserInputType.Touch then
             return Enum.ContextActionResult.Pass
         end
 
@@ -572,44 +638,22 @@ local function CaptureInput(_, inputState, inputObject)
             return Enum.ContextActionResult.Pass
         end
 
-        ActiveInputType = inputType
-        ActiveTouchInput = inputType == Enum.UserInputType.Touch and inputObject or nil
-        CurrentPointer = pointer
-        SetActiveHandle(handleIndex)
-        if not BeginDrag(handleIndex, pointer) then
-            SetActiveHandle(nil)
-            ActiveInputType = nil
-            ActiveTouchInput = nil
+        if not StartHandleDrag(handleIndex, Enum.UserInputType.Touch, pointer, inputObject) then
             return Enum.ContextActionResult.Pass
         end
 
         return Enum.ContextActionResult.Sink
     end
 
-    if ActiveHandle then
-        if inputType == ActiveInputType then
-            if inputType == Enum.UserInputType.Touch
-                and ActiveTouchInput
-                and inputObject ~= ActiveTouchInput then
-                return Enum.ContextActionResult.Pass
-            end
+    if ActiveInputType == Enum.UserInputType.Touch and ActiveTouchInput == inputObject then
+        if inputState == Enum.UserInputState.Change then
+            CurrentPointer = GetScreenPosition(inputObject)
+            return Enum.ContextActionResult.Sink
+        end
 
-            if inputState == Enum.UserInputState.Change then
-                if inputType == Enum.UserInputType.Touch then
-                    CurrentPointer = GetScreenPosition(inputObject)
-                end
-                return Enum.ContextActionResult.Sink
-            end
-
-            if inputState == Enum.UserInputState.End
-                or inputState == Enum.UserInputState.Cancel then
-                FinishDrag()
-                SetActiveHandle(nil)
-                ActiveInputType = nil
-                ActiveTouchInput = nil
-                CurrentPointer = nil
-            end
-
+        if inputState == Enum.UserInputState.End
+            or inputState == Enum.UserInputState.Cancel then
+            EndHandleDrag()
             return Enum.ContextActionResult.Sink
         end
     end
@@ -618,12 +662,31 @@ local function CaptureInput(_, inputState, inputObject)
 end
 
 local InputChangedConnection = UserInputService.InputChanged:Connect(function(inputObject)
-    if ActiveHandle and ActiveInputType == Enum.UserInputType.MouseButton1
+    if not IsDragging then
+        return
+    end
+
+    if ActiveInputType == Enum.UserInputType.MouseButton1
         and inputObject.UserInputType == Enum.UserInputType.MouseMovement then
-        CurrentPointer = GetScreenPosition(inputObject)
-    elseif ActiveHandle and ActiveInputType == Enum.UserInputType.Touch
+        local mousePosition = UserInputService:GetMouseLocation()
+        CurrentPointer = Vector2.new(mousePosition.X, mousePosition.Y)
+    elseif ActiveInputType == Enum.UserInputType.Touch
+        and inputObject.UserInputType == Enum.UserInputType.Touch
         and ActiveTouchInput then
-        CurrentPointer = GetScreenPosition(ActiveTouchInput)
+        CurrentPointer = GetScreenPosition(inputObject)
+    end
+end)
+
+local InputEndedConnection = UserInputService.InputEnded:Connect(function(inputObject)
+    if ActiveInputType == Enum.UserInputType.MouseButton1
+        and inputObject.UserInputType == Enum.UserInputType.MouseButton1 then
+        EndHandleDrag()
+    elseif ActiveInputType == Enum.UserInputType.Touch
+        and inputObject.UserInputType == Enum.UserInputType.Touch
+        and (inputObject == ActiveTouchInput
+            or inputObject.UserInputState == Enum.UserInputState.End
+            or inputObject.UserInputState == Enum.UserInputState.Cancel) then
+        EndHandleDrag()
     end
 end)
 
@@ -682,8 +745,9 @@ local function UpdateGizmo()
                 stateScale = CurrentScale.Dragging
                 transparency = 0.2
             end
-        elseif pointer and visible
-            and (handle.ScreenPosition - pointer).Magnitude <= HitRadius then
+        elseif (CurrentScale == MouseScale and handle.Hovering)
+            or (CurrentScale == TouchScale and pointer and visible
+                and (handle.ScreenPosition - pointer).Magnitude <= HitRadius) then
             stateScale = CurrentScale.Hovering
             transparency = 0.4
         end
@@ -942,6 +1006,14 @@ function RotateMode:Destroy()
         InputTypeConnection:Disconnect()
         InputTypeConnection = nil
     end
+    if InputEndedConnection then
+        InputEndedConnection:Disconnect()
+        InputEndedConnection = nil
+    end
+    for _, connection in ipairs(HandleConnections) do
+        pcall(function() connection:Disconnect() end)
+    end
+    table.clear(HandleConnections)
     HideHandles()
     HideRotationRing()
     pcall(function() AdornmentFolder:Destroy() end)
@@ -971,7 +1043,6 @@ CAS:BindActionAtPriority(
     CaptureInput,
     false,
     3000,
-    Enum.UserInputType.MouseButton1,
     Enum.UserInputType.Touch
 )
 
