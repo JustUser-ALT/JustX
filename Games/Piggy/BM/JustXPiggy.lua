@@ -35,7 +35,7 @@ local BaseUrl = "https://raw.githubusercontent.com/JustUser-ALT/JustX/main/Games
 local ToolConfig = {
     Move = {File = "MoveTool.lua", Cleanup = "MoveToolCleanup"},
     Resize = {File = "ResizeTool.lua", Cleanup = "ResizeToolCleanup"},
-    Rotate = {File = "RotateTool.lua", Cleanup = "RotateTestCleanup"},
+    Rotate = {File = "RotateTool.lua", Cleanup = "RotateToolCleanup"},
     Copy = {File = "CopyTool.lua", Cleanup = "CopyTestCleanup"}
 }
 local ToolToggles = {}
