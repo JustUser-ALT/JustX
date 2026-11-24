@@ -683,9 +683,7 @@ local InputEndedConnection = UserInputService.InputEnded:Connect(function(inputO
         EndHandleDrag()
     elseif ActiveInputType == Enum.UserInputType.Touch
         and inputObject.UserInputType == Enum.UserInputType.Touch
-        and (inputObject == ActiveTouchInput
-            or inputObject.UserInputState == Enum.UserInputState.End
-            or inputObject.UserInputState == Enum.UserInputState.Cancel) then
+        and inputObject == ActiveTouchInput then
         EndHandleDrag()
     end
 end)
