@@ -23,11 +23,27 @@ assert(GridLabel and GridLabel:IsA("TextLabel"), "[GridDividerLayoutTest] GridDi
 
 local OriginalInputPosition = GridDivider.Position
 local OriginalLabelPosition = GridLabel.Position
+local OriginalInputSize = GridDivider.Size
 
--- Initial proposal: 8 px to the right and 6 px upward.
--- Adjust only these offsets while visually testing.
-local X_OFFSET = 24
+local Corner = GridDivider:FindFirstChildOfClass("UICorner")
+local CreatedCorner = false
+local OriginalCornerRadius
+
+if not Corner then
+    Corner = Instance.new("UICorner")
+    Corner.Name = "GridDividerTestCorner"
+    Corner.Parent = GridDivider
+    CreatedCorner = true
+else
+    OriginalCornerRadius = Corner.CornerRadius
+end
+
+-- Layout test: move the control farther right and slightly enlarge it.
+local X_OFFSET = 40
 local Y_OFFSET = -14
+local INPUT_WIDTH = 64
+local INPUT_HEIGHT = 30
+local CORNER_RADIUS = 7
 
 local function ShiftPosition(position, x, y)
     return UDim2.new(
@@ -40,6 +56,8 @@ end
 
 GridDivider.Position = ShiftPosition(OriginalInputPosition, X_OFFSET, Y_OFFSET)
 GridLabel.Position = ShiftPosition(OriginalLabelPosition, X_OFFSET, Y_OFFSET)
+GridDivider.Size = UDim2.fromOffset(INPUT_WIDTH, INPUT_HEIGHT)
+Corner.CornerRadius = UDim.new(0, CORNER_RADIUS)
 
 local Cleaned = false
 
@@ -51,9 +69,17 @@ local function Cleanup()
 
     if GridDivider and GridDivider.Parent then
         GridDivider.Position = OriginalInputPosition
+        GridDivider.Size = OriginalInputSize
     end
     if GridLabel and GridLabel.Parent then
         GridLabel.Position = OriginalLabelPosition
+    end
+    if Corner and Corner.Parent then
+        if CreatedCorner then
+            Corner:Destroy()
+        elseif OriginalCornerRadius then
+            Corner.CornerRadius = OriginalCornerRadius
+        end
     end
 
     if Env.GridDividerLayoutTestCleanup == Cleanup then
@@ -65,5 +91,5 @@ end
 
 Env.GridDividerLayoutTestCleanup = Cleanup
 
-print("[GridDividerLayoutTest] Applied: X +" .. X_OFFSET .. " px, Y " .. Y_OFFSET .. " px")
+print("[GridDividerLayoutTest] Applied: X +" .. X_OFFSET .. " px, Y " .. Y_OFFSET .. " px, size " .. INPUT_WIDTH .. "x" .. INPUT_HEIGHT .. ", rounded corners")
 print("[GridDividerLayoutTest] Run getgenv().GridDividerLayoutTestCleanup() to restore")
