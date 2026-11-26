@@ -427,6 +427,29 @@ local function SetMoveHandlesAdornee(adornee)
     return ok
 end
 
+local function ArmGroup()
+    if #Selection < 2 then return false end
+
+    SetDriver()
+    if not UpdateProxyBounds() then
+        GroupArmed = false
+        ClientState.SelectedBlock = nil
+        warn("[MultiMoveTest] Could not calculate group bounds")
+        return false
+    end
+
+    GroupArmed = true
+    local ok = SetMoveHandlesAdornee(ProxyModel)
+    if not ok then
+        GroupArmed = false
+        ClientState.SelectedBlock = nil
+        return false
+    end
+
+    print("[MultiMoveTest] Group handles appeared automatically after main action")
+    return true
+end
+
 local function DisarmGroup()
     GroupArmed = false
     DragSession = nil
@@ -483,12 +506,22 @@ local function ToggleBlock(block)
         print("[MultiMoveTest] Added:", block:GetFullName())
     end
 
-    -- Keep native MoveHandles disabled while collecting the group.
-    -- Otherwise the first selected block captures subsequent taps.
-    GroupArmed = false
-    DragSession = nil
-    SetMoveHandlesAdornee(nil)
-    ClientState.SelectedBlock = nil
+    -- Arm the native group handles automatically as soon as the
+    -- main BuildMode action selects the second (or later) block.
+    if #Selection >= 2 then
+        local armed = ArmGroup()
+        if not armed then
+            GroupArmed = false
+            DragSession = nil
+            SetMoveHandlesAdornee(nil)
+            ClientState.SelectedBlock = nil
+        end
+    else
+        GroupArmed = false
+        DragSession = nil
+        SetMoveHandlesAdornee(nil)
+        ClientState.SelectedBlock = nil
+    end
     UpdateControls()
 end
 
@@ -636,24 +669,11 @@ table.insert(Connections, Toggle.Activated:Connect(function()
         GroupArmed = false
         ClientState.SelectedBlock = nil
         print("[MultiMoveTest] Selection mode enabled")
-    elseif not GroupArmed then
-        if #Selection < 2 then
-            print("[MultiMoveTest] Select at least 2 blocks before arming")
-            return
-        end
-        GroupArmed = true
-        SetDriver()
-        if UpdateProxyBounds() then
-            SetMoveHandlesAdornee(ProxyModel)
-            print("[MultiMoveTest] Group drag armed; handles centered on group bounds")
-        else
-            GroupArmed = false
-            ClientState.SelectedBlock = nil
-            warn("[MultiMoveTest] Could not calculate group bounds")
-        end
-    else
+    elseif GroupArmed then
         DisarmGroup()
-        print("[MultiMoveTest] Group drag disarmed; you can select more blocks")
+        print("[MultiMoveTest] Group handles hidden; you can select more blocks")
+    else
+        ResetMultiSelect("Multi button")
     end
     UpdateControls()
 end))
@@ -773,8 +793,9 @@ print("================================")
 print("[MultiMoveTest] Loaded")
 print("[MultiMoveTest] Group handle centering hook installed")
 print("[MultiMoveTest] Select Move mode and enable SELECT BLOCKS")
-print("[MultiMoveTest] Select 2+ blocks, then tap the button again to arm native handles")
-print("[MultiMoveTest] Tap again to disarm and continue selecting")
+print("[MultiMoveTest] Select the first block with the main BuildMode action")
+print("[MultiMoveTest] Native group handles appear automatically when the second block is selected")
+print("[MultiMoveTest] Tap MULTI to hide handles and continue selecting; tap again to reset")
 print("[MultiMoveTest] Drag the native Move arrows to move the group")
 print("[MultiMoveTest] Other blocks are committed individually on release")
 print("[MultiMoveTest] Use MultiMoveTestCleanup() to unload")
