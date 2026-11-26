@@ -436,11 +436,37 @@ local function DisarmGroup()
 end
 
 local function ClearSelection()
+    -- Snapshot keys first: RemoveOutline mutates Outlines while iterating.
+    local outlinedBlocks = {}
     for block in pairs(Outlines) do
+        table.insert(outlinedBlocks, block)
+    end
+
+    for _, block in ipairs(outlinedBlocks) do
         RemoveOutline(block)
     end
+
     table.clear(Selection)
     UpdateControls()
+end
+
+local function ResetMultiSelect(reason)
+    -- Full reset: unlike DisarmGroup(), this removes the group and exits
+    -- selection mode so no stale outline or native handle can survive.
+    GroupArmed = false
+    DragSession = nil
+    MultiEnabled = false
+
+    SetMoveHandlesAdornee(nil)
+    ClientState.SelectedBlock = nil
+    ClearSelection()
+
+    -- Keep the invisible proxy in a harmless neutral state for a later run.
+    ProxyPart.Size = Vector3.new(1, 1, 1)
+    ProxyModel:PivotTo(CFrame.new(0, -10000, 0))
+
+    UpdateControls()
+    print("[MultiMoveTest] Full MultiSelect reset:", reason or "manual")
 end
 
 local function ToggleBlock(block)
@@ -480,6 +506,14 @@ end
 local function MultiMovePlaceBlockAction(self, ...)
     if Cleaned or not MultiEnabled or not IsMoveMode() then
         return OriginalPlaceBlockAction(self, ...)
+    end
+
+    -- Once group handles are armed, the main BuildMode action button is
+    -- the explicit "finish/reset" action. Do not accidentally add another
+    -- block to a group whose handles are currently active.
+    if GroupArmed then
+        ResetMultiSelect("main action")
+        return Enum.ContextActionResult.Sink
     end
 
     local block = GetHoveredBlock()
@@ -635,7 +669,12 @@ table.insert(Connections, GridDivider.FocusLost:Connect(function()
 end))
 
 table.insert(Connections, ChangedEvent.Event:Connect(function(mode)
-    task.defer(UpdateVisibility, mode)
+    task.defer(function()
+        if not IsMoveMode(mode) then
+            ResetMultiSelect("mode changed")
+        end
+        UpdateVisibility(mode)
+    end)
 end))
 
 table.insert(Connections, MoveHandles.MouseButton1Down:Connect(BeginGroupDrag))
