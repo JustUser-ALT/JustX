@@ -189,6 +189,27 @@ Env.JustXPiggyToolSteps = Steps
 local RotationStep = tonumber(Steps.Rotate) or 0.1
 Steps.Rotate = RotationStep
 
+local GridDividerFactory = Env.JustXPiggyGridDividerFactory
+if type(GridDividerFactory) ~= "function" then
+    local source = game:HttpGet("https://raw.githubusercontent.com/JustUser-ALT/JustX/main/Games/Piggy/BM/Tools/GridDivider.lua")
+    local chunk, compileError = loadstring(source)
+    assert(type(chunk) == "function", compileError or "[Rotate] GridDivider loadstring failed")
+    GridDividerFactory = chunk()
+    assert(type(GridDividerFactory) == "function", "[Rotate] GridDivider factory invalid")
+    Env.JustXPiggyGridDividerFactory = GridDividerFactory
+end
+
+local GridDivider = GridDividerFactory({
+    Mode = "Rotate",
+    Value = RotationStep,
+    MinValue = 0.1,
+    MaxValue = 10,
+    OnChanged = function(value)
+        RotationStep = value
+        Steps.Rotate = value
+    end
+})
+
 local AxisColors = {
     X = Color3.new(1, 0, 0),
     Y = Color3.new(0, 1, 0),
@@ -204,50 +225,7 @@ local HandleDefinitions = {
     {Name = "Front", Axis = "Z", Direction = Vector3.new(0, -1, 0)}
 }
 
-local StepGui = Instance.new("ScreenGui")
-StepGui.Name = "JustXRotateStepSettings"
-StepGui.ResetOnSpawn = false
-StepGui.IgnoreGuiInset = true
-StepGui.DisplayOrder = 10000
-StepGui.Enabled = false
 
-local StepInput = Instance.new("TextBox")
-StepInput.Name = "StepInput"
-StepInput.Size = UDim2.fromOffset(55, 25)
-StepInput.Position = UDim2.new(1, -65, 0.46, 0)
-StepInput.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
-StepInput.BorderSizePixel = 0
-StepInput.TextColor3 = Color3.new(1, 1, 1)
-StepInput.Text = tostring(RotationStep)
-StepInput.PlaceholderText = tostring(RotationStep)
-StepInput.Font = Enum.Font.Gotham
-StepInput.TextSize = 12
-StepInput.ClearTextOnFocus = false
-StepInput.Parent = StepGui
-
-local StepCorner = Instance.new("UICorner")
-StepCorner.CornerRadius = UDim.new(0, 5)
-StepCorner.Parent = StepInput
-
-local GuiParent
-pcall(function()
-    if type(gethui) == "function" then
-        GuiParent = gethui()
-    end
-end)
-StepGui.Parent = GuiParent or PlayerGui
-
-StepInput.FocusLost:Connect(function()
-    local value = tonumber(StepInput.Text)
-    if not value then
-        StepInput.Text = tostring(RotationStep)
-        return
-    end
-
-    RotationStep = math.clamp(value, 0.1, 10)
-    Steps.Rotate = RotationStep
-    StepInput.Text = tostring(RotationStep)
-end)
 
 local VersionLabel = Drawing.new("Text")
 VersionLabel.Text = VERSION
@@ -1065,7 +1043,9 @@ function RotateMode:Destroy()
     HideRotationRing()
     pcall(function() AdornmentFolder:Destroy() end)
     pcall(function() VersionLabel:Remove() end)
-    pcall(function() StepGui:Destroy() end)
+    if GridDivider then
+        pcall(function() GridDivider:Destroy() end)
+    end
 
     self.Active = false
     self.Target = nil
@@ -1158,9 +1138,7 @@ local function Connect(connection)
     return connection
 end
 
-local StepModeConnection = Connect(ChangedEvent.Event:Connect(function(modeName)
-    StepGui.Enabled = modeName == "Rotate"
-end))
+
 
 local SelectedModeName = "rotate tool"
 
