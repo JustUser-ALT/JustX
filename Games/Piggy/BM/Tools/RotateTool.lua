@@ -136,6 +136,20 @@ local TitlePatchReady = true
 -- REGISTER ROTATE ICON
 --==================================================
 
+local ROTATE_ICON_IMAGE = "rbxassetid://72311646349060"
+
+local function ApplyRotateIconImage(icon)
+    if not icon then
+        return
+    end
+
+    pcall(function()
+        icon.Image = ROTATE_ICON_IMAGE
+        icon.ImageRectOffset = Vector2.zero
+        icon.ImageRectSize = Vector2.zero
+    end)
+end
+
 local RotateIcon = IconsFolder:FindFirstChild("Rotate")
 local CreatedIcon = false
 
@@ -145,6 +159,8 @@ if not RotateIcon then
     RotateIcon.Parent = IconsFolder
     CreatedIcon = true
 end
+
+ApplyRotateIconImage(RotateIcon)
 
 --==================================================
 -- FIND RENDER LOOP MODES
@@ -1112,9 +1128,10 @@ Button.Name = "RotateButton"
 Button.LayoutOrder = 7
 Button.Position = UDim2.fromOffset(444, 0)
 
-local ButtonIcon = Button:FindFirstChild("Move")
+local ButtonIcon = Button:FindFirstChild("Move", true)
 if ButtonIcon then
     ButtonIcon.Name = "Rotate"
+    ApplyRotateIconImage(ButtonIcon)
 end
 
 local OriginalFrameSize = Frame.Size
