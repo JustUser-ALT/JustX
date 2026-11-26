@@ -226,8 +226,14 @@ local function CommitGroup()
     if CommitBusy or not GroupChanged then return end
     CommitBusy = true
     GroupChanged = false
+    local blocks = {}
+    for _, block in ipairs(Selection) do
+        if IsValidBlock(block) then
+            table.insert(blocks, block)
+        end
+    end
     task.spawn(function()
-        for _, block in ipairs(Selection) do
+        for _, block in ipairs(blocks) do
             if IsValidBlock(block) then
                 local ok, err = pcall(function()
                     CommitMove:InvokeServer(block, block:GetPivot())
