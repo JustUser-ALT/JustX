@@ -506,8 +506,8 @@ local function ToggleBlock(block)
         print("[MultiMoveTest] Added:", block:GetFullName())
     end
 
-    -- Arm the native group handles automatically as soon as the
-    -- main BuildMode action selects the second (or later) block.
+    -- One selected block uses the native single-block Move handles.
+    -- Two or more blocks automatically switch to the group proxy handles.
     if #Selection >= 2 then
         local armed = ArmGroup()
         if not armed then
@@ -516,6 +516,12 @@ local function ToggleBlock(block)
             SetMoveHandlesAdornee(nil)
             ClientState.SelectedBlock = nil
         end
+    elseif #Selection == 1 then
+        GroupArmed = false
+        DragSession = nil
+        local selected = Selection[1]
+        ClientState.SelectedBlock = selected
+        SetMoveHandlesAdornee(selected)
     else
         GroupArmed = false
         DragSession = nil
@@ -541,14 +547,9 @@ local function MultiMovePlaceBlockAction(self, ...)
         return OriginalPlaceBlockAction(self, ...)
     end
 
-    -- Once group handles are armed, the main BuildMode action button is
-    -- the explicit "finish/reset" action. Do not accidentally add another
-    -- block to a group whose handles are currently active.
-    if GroupArmed then
-        ResetMultiSelect("main action")
-        return Enum.ContextActionResult.Sink
-    end
-
+    -- The main BuildMode action always edits the selection, even while
+    -- group handles are visible. ToggleBlock will re-arm the correct handles
+    -- after adding or removing the block.
     local block = GetHoveredBlock()
     if block then
         ToggleBlock(block)
@@ -735,6 +736,12 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
                 ClientState.SelectedBlock = driver
             end
             UpdateProxyBounds()
+        elseif #Selection == 1 then
+            local selected = Selection[1]
+            if IsValidBlock(selected) and ClientState.SelectedBlock ~= selected then
+                ClientState.SelectedBlock = selected
+                SetMoveHandlesAdornee(selected)
+            end
         elseif ClientState.SelectedBlock ~= nil then
             ClientState.SelectedBlock = nil
         end
@@ -793,8 +800,9 @@ print("================================")
 print("[MultiMoveTest] Loaded")
 print("[MultiMoveTest] Group handle centering hook installed")
 print("[MultiMoveTest] Select Move mode and enable SELECT BLOCKS")
-print("[MultiMoveTest] Select the first block with the main BuildMode action")
-print("[MultiMoveTest] Native group handles appear automatically when the second block is selected")
+print("[MultiMoveTest] One selected block shows native single-block Move handles")
+print("[MultiMoveTest] Group handles appear automatically when the second block is selected")
+print("[MultiMoveTest] Keep using the main BuildMode action to add or remove any number of blocks")
 print("[MultiMoveTest] Tap MULTI to hide handles and continue selecting; tap again to reset")
 print("[MultiMoveTest] Drag the native Move arrows to move the group")
 print("[MultiMoveTest] Other blocks are committed individually on release")
