@@ -1,6 +1,6 @@
 --==================================================
 -- JUST X LIBRARY · PIGGY ROTATE TEST
-print("[RotateLibraryTest] Loader build 7f9156e")
+print("[RotateLibraryTest] Loader build e38b210")
 -- Loads the existing RotateTool.lua implementation.
 -- No duplicate gizmo, toolbar, or selection implementation here.
 --==================================================
@@ -14,7 +14,7 @@ end
 
 local Env = (getgenv and getgenv()) or _G
 local LibraryUrl = "https://raw.githubusercontent.com/JustUser-ALT/JustXLibrary/main/JustLib.lua?v=397707e13e13c03ee42d4f7ff17e7dd7d7bde8efc"
-local ToolUrl = "https://raw.githubusercontent.com/JustUser-ALT/JustX/main/Games/Piggy/BM/Tools/RotateTool.lua"
+local ToolUrl = "https://raw.githubusercontent.com/JustUser-ALT/JustX/main/Games/Piggy/BM/Tools/RotateTool.lua?v=e38b210"
 
 -- Clean up a previous copy of this test loader.
 if type(Env.RotateLibraryTestCleanup) == "function" then
