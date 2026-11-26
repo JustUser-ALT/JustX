@@ -373,6 +373,20 @@ local function GetModelSize(model)
     return Vector3.new(4, 4, 4)
 end
 
+-- Optional group-gizmo override used by MultiRotateTest. The selected model
+-- remains real; only the gizmo origin and visual bounds are overridden.
+local function GetGizmoTransform(model)
+    local override = Env.RotateToolPivotOverride
+    if type(override) == "function" then
+        local ok, pivot, size = pcall(override, model)
+        if ok and typeof(pivot) == "CFrame" and typeof(size) == "Vector3" then
+            return pivot, size
+        end
+    end
+
+    return model:GetPivot(), GetModelSize(model)
+end
+
 local function SetModel(model)
     CurrentModel = model
 
@@ -467,8 +481,9 @@ local function BeginDrag(handleIndex, position)
 
     local definition = Handles[handleIndex].Definition
     DragStartPivot = CurrentModel:GetPivot()
-    DragOrigin = DragStartPivot.Position
-    DragAxisWorld = GetAxisVector(DragStartPivot, definition.Axis).Unit
+    local gizmoPivot = GetGizmoTransform(CurrentModel)
+    DragOrigin = gizmoPivot.Position
+    DragAxisWorld = GetAxisVector(gizmoPivot, definition.Axis).Unit
 
     -- The source dragger derives the pointer vector from the ray/rotation-plane intersection.
     DragPreviousVector = GetMousePositionOnPlane(position, DragOrigin, DragAxisWorld)
@@ -730,8 +745,7 @@ local function UpdateGizmo()
         return
     end
 
-    local pivot = CurrentModel:GetPivot()
-    local size = GetModelSize(CurrentModel)
+    local pivot, size = GetGizmoTransform(CurrentModel)
     local ringRadius = math.max(size.X, size.Y, size.Z)
     local sphereOffset = GetCameraScale(pivot.Position)
     local ringHeight = math.max(sphereOffset * 0.1, 0.001)
