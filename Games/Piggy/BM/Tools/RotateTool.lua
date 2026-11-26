@@ -3,7 +3,7 @@
 -- Native Build Mode Toolbar Integration
 -- Piggy Build Mode rotation tool
 --==================================================
-local ROTATE_TOOL_BUILD = "touch-capture-20261126"
+local ROTATE_TOOL_BUILD = "touch-camera-lock-20261126"
 
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
@@ -491,7 +491,62 @@ local function BeginDrag(handleIndex, position)
     return true
 end
 
+local CameraLockState
+
+local function LockCameraForTouch()
+    if ActiveInputType ~= Enum.UserInputType.Touch or CameraLockState then
+        return true
+    end
+
+    local camera = workspace.CurrentCamera
+    if not camera then
+        return false
+    end
+
+    CameraLockState = {
+        Camera = camera,
+        CameraType = camera.CameraType,
+        CFrame = camera.CFrame,
+        Focus = camera.Focus
+    }
+
+    local ok = pcall(function()
+        camera.CameraType = Enum.CameraType.Scriptable
+    end)
+
+    if not ok or camera.CameraType ~= Enum.CameraType.Scriptable then
+        CameraLockState = nil
+        return false
+    end
+
+    return true
+end
+
+local function RestoreCameraAfterTouch()
+    local state = CameraLockState
+    if not state then
+        return
+    end
+
+    CameraLockState = nil
+
+    local camera = workspace.CurrentCamera
+    if not camera then
+        camera = state.Camera
+    end
+
+    if camera then
+        pcall(function()
+            camera.CameraType = state.CameraType
+            camera.CFrame = state.CFrame
+            camera.Focus = state.Focus
+        end)
+    end
+end
+
 local function FinishDrag()
+    RestoreCameraAfterTouch()
+
     if DragConnection then
         DragConnection:Disconnect()
         DragConnection = nil
@@ -560,6 +615,21 @@ local function StartHandleDrag(handleIndex, forcedInputType)
         SetActiveHandle(nil)
         ActiveInputType = nil
         CurrentPointer = nil
+        return false
+    end
+
+    if ActiveInputType == Enum.UserInputType.Touch and not LockCameraForTouch() then
+        IsDragging = false
+        HideRotationRing()
+        DragStartPivot = nil
+        DragAxisWorld = nil
+        DragOrigin = nil
+        DragPreviousVector = nil
+        TotalDragAngle = 0
+        SetActiveHandle(nil)
+        ActiveInputType = nil
+        CurrentPointer = nil
+        warn("[RotateTool] Could not temporarily disable the camera for touch rotation")
         return false
     end
 
