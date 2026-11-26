@@ -39,8 +39,8 @@ else
 end
 
 -- Layout test: move the control farther right and slightly enlarge it.
-local X_OFFSET = 70
-local Y_OFFSET = -24
+local X_OFFSET = 90
+local Y_OFFSET = -34
 local INPUT_WIDTH = 72
 local INPUT_HEIGHT = 34
 local CORNER_RADIUS = 9
