@@ -36,7 +36,8 @@ local ToolConfig = {
     Move = {File = "MoveTool.lua", Cleanup = "MoveToolCleanup"},
     Resize = {File = "ResizeTool.lua", Cleanup = "ResizeToolCleanup"},
     Rotate = {File = "RotateTool.lua", Cleanup = "RotateToolCleanup"},
-    Copy = {File = "CopyTool.lua", Cleanup = "CopyTestCleanup"}
+    Copy = {File = "CopyTool.lua", Cleanup = "CopyTestCleanup"},
+    Clone = {File = "CloneTool.lua", Cleanup = "CloneToolCleanup"}
 }
 local ToolToggles = {}
 
@@ -101,6 +102,11 @@ ToolToggles.Copy = Tools:Toggle({
     Name = "Copy Tool", Icon = "copy", Default = false,
     Flag = "Piggy_BM_Copy",
     Callback = function(Value) setTool("Copy", Value) end
+})
+ToolToggles.Clone = Tools:Toggle({
+    Name = "Clone Tool", Icon = "copy-plus", Default = false,
+    Flag = "Piggy_BM_Clone",
+    Callback = function(Value) setTool("Clone", Value) end
 })
 
 JL:OnUnload(function()
