@@ -8,6 +8,27 @@ local Steps = type(Env.JustXPiggyToolSteps) == "table" and Env.JustXPiggyToolSte
 Env.JustXPiggyToolSteps = Steps
 local step = tonumber(Steps.Resize) or 0.1
 Steps.Resize = step
+
+local GridDividerFactory = Env.JustXPiggyGridDividerFactory
+if type(GridDividerFactory) ~= "function" then
+    local source = game:HttpGet("https://raw.githubusercontent.com/JustUser-ALT/JustX/main/Games/Piggy/BM/Tools/GridDivider.lua")
+    local chunk, compileError = loadstring(source)
+    assert(type(chunk) == "function", compileError or "[Resize] GridDivider loadstring failed")
+    GridDividerFactory = chunk()
+    assert(type(GridDividerFactory) == "function", "[Resize] GridDivider factory invalid")
+    Env.JustXPiggyGridDividerFactory = GridDividerFactory
+end
+
+local GridDivider = GridDividerFactory({
+    Mode = "Resize",
+    Value = step,
+    MinValue = 0.1,
+    MaxValue = 10,
+    OnChanged = function(value)
+        step = value
+        Steps.Resize = value
+    end
+})
 local cachedFunction
 local cachedIndex
 local originalConstant
@@ -15,53 +36,7 @@ local originalConstant
 if type(Env.ResizeToolCleanup) == "function" then
     pcall(Env.ResizeToolCleanup)
 end
-local guiParent = gethui and gethui() or game:GetService("CoreGui")
 
--- Удаляем предыдущую версию UI
-local old = guiParent:FindFirstChild("ResizeStepSettings")
-if old then
-    old:Destroy()
-end
-
--- Компактный UI
-local gui = Instance.new("ScreenGui")
-gui.Name = "ResizeStepSettings"
-gui.ResetOnSpawn = false
-gui.IgnoreGuiInset = true
-gui.DisplayOrder = 10000
-gui.Enabled = false
-gui.Parent = guiParent
-
-local input = Instance.new("TextBox")
-input.Name = "StepInput"
-input.Size = UDim2.fromOffset(55, 25)
-input.Position = UDim2.new(1, -65, 0.46, 0)
-input.AnchorPoint = Vector2.new(0, 0)
-input.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
-input.BorderSizePixel = 0
-input.TextColor3 = Color3.new(1, 1, 1)
-input.Text = tostring(step)
-input.PlaceholderText = tostring(step)
-input.Font = Enum.Font.Gotham
-input.TextSize = 12
-input.ClearTextOnFocus = false
-input.Parent = gui
-
-local corner = Instance.new("UICorner")
-corner.CornerRadius = UDim.new(0, 5)
-corner.Parent = input
-
--- Mode-aware visibility and independent saved step.
-local BuildModeFolder = RS:WaitForChild("BuildMode")
-local BuildingMode = require(BuildModeFolder:WaitForChild("BuildingMode"))
-local ChangedEvent = BuildModeFolder:WaitForChild("Events"):WaitForChild("BuildingModeChanged")
-local function UpdateStepVisibility(modeName)
-    gui.Enabled = modeName == "Resize"
-end
-local currentMode = BuildingMode:Get()
-local currentModeName = tostring(currentMode):match("([^%.]+)$")
-gui.Enabled = currentModeName == "Resize"
-local ModeConnection = ChangedEvent.Event:Connect(UpdateStepVisibility)
 
 -- Поиск оригинального обработчика Resize Tool
 local function findResizeFunction()
@@ -133,24 +108,11 @@ local function applyStep()
 end
 
 -- Автоматическое ограничение и применение
-input.FocusLost:Connect(function()
-    local value = tonumber(input.Text)
 
-    if not value then
-        input.Text = tostring(step)
-        return
-    end
-
-    step = math.clamp(value, 0.1, 10)
-    Steps.Resize = step
-    input.Text = tostring(step)
-
-    applyStep()
-end)
 
 -- Ожидание активации Resize Tool
 task.spawn(function()
-    while gui.Parent do
+    while GridDivider and GridDivider.Gui and GridDivider.Gui.Parent do
         applyStep()
         task.wait(0.3)
     end
@@ -167,11 +129,8 @@ local function Cleanup()
     if cachedFunction and cachedIndex and originalConstant ~= nil then
         pcall(debug.setconstant, cachedFunction, cachedIndex, originalConstant)
     end
-    if ModeConnection then
-        pcall(function() ModeConnection:Disconnect() end)
-    end
-    if gui and gui.Parent then
-        pcall(function() gui:Destroy() end)
+    if GridDivider then
+        pcall(function() GridDivider:Destroy() end)
     end
     if Env.ResizeToolCleanup == Cleanup then
         Env.ResizeToolCleanup = nil
