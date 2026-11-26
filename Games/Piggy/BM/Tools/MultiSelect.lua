@@ -407,7 +407,6 @@ local function ArmGroup()
         return false
     end
 
-    print("[MultiSelect] Group handles appeared automatically after main action")
     return true
 end
 
@@ -441,7 +440,6 @@ local function ResetMultiSelect(reason)
     ProxyModel:PivotTo(CFrame.new(0, -10000, 0))
 
     UpdateControls()
-    print("[MultiSelect] Full MultiSelect reset:", reason or "manual")
 end
 
 local function ToggleBlock(block)
@@ -451,11 +449,9 @@ local function ToggleBlock(block)
     if index then
         table.remove(Selection, index)
         RemoveOutline(block)
-        print("[MultiSelect] Removed:", block:GetFullName())
     else
         table.insert(Selection, block)
         local outlined = CreateOutline(block)
-        print("[MultiSelect] Added:", block:GetFullName(), "outline:", outlined)
     end
 
     -- One selected block uses the native single-block Move handles.
@@ -509,7 +505,6 @@ local function MultiMovePlaceBlockAction(self, ...)
     if block then
         ToggleBlock(block)
     else
-        print("[MultiSelect] Click ignored: no BuildModel block under pointer")
     end
     return Enum.ContextActionResult.Sink
 end
@@ -576,7 +571,6 @@ local function CommitGroupOthers()
             end
         end
         CommitBusy = false
-        print("[MultiSelect] Group commit pass finished")
     end)
 end
 
@@ -607,7 +601,6 @@ local function BeginGroupDrag()
         driverStart = driver:GetPivot(),
         starts = starts
     }
-    print("[MultiSelect] Group drag started; driver:", driver:GetFullName())
 end
 
 local function UpdateVisibility(mode)
@@ -627,7 +620,6 @@ table.insert(Connections, Toggle.Activated:Connect(function()
         DragSession = nil
         ClientState.SelectedBlock = nil
         UpdateControls()
-        print("[MultiSelect] Selection mode enabled")
     end
 end))
 
@@ -745,20 +737,9 @@ local function Cleanup()
     if Env.MultiSelectCleanup == Cleanup then
         Env.MultiSelectCleanup = nil
     end
-    print("[MultiSelect] Cleanup complete")
 end
 
 Env.MultiSelectCleanup = Cleanup
 
 print("================================")
-print("[MultiSelect] Loaded")
-print("[MultiSelect] Group handle centering hook installed")
-print("[MultiSelect] Select Move mode and enable MULTI")
-print("[MultiSelect] One selected block shows native single-block Move handles")
-print("[MultiSelect] Group handles appear automatically when the second block is selected")
-print("[MultiSelect] Keep using the main BuildMode action to add or remove any number of blocks")
-print("[MultiSelect] Tap MULTI once to enable; tap again to disable and clear all selection")
-print("[MultiSelect] Drag the native Move arrows to move the group")
-print("[MultiSelect] Other blocks are committed individually on release")
-print("[MultiSelect] Use MultiSelectCleanup() to unload")
 print("================================")
