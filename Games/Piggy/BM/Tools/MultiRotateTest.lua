@@ -51,7 +51,6 @@ assert(ClientState, "[MultiRotateTest] BuildModeClient not found")
 local OriginalPlaceBlockAction = ClientState.PlaceBlockAction
 local OriginalRotateUpdate = RotateMode.Update
 local PreviousPivotOverride = Env.RotateToolPivotOverride
-Env.RotateToolPivotOverride = GetGroupGizmoTransform
 local Placement = PlacementLogic.new()
 local AdornmentParent = BuildModeGui:WaitForChild("Frame"):WaitForChild("Adornment")
 local CommitMove = RS:WaitForChild("Functions"):WaitForChild("CommitMove")
@@ -171,25 +170,31 @@ local function GetGroupGizmoTransform(model)
         return nil
     end
 
+    local driverPivot = model:GetPivot()
     local minX, minY, minZ = math.huge, math.huge, math.huge
     local maxX, maxY, maxZ = -math.huge, -math.huge, -math.huge
 
+    -- Measure every selected block in the driver's local orientation.
+    -- This avoids mixing a world-aligned AABB with a rotated gizmo.
     for _, block in ipairs(Selection) do
         if IsValidBlock(block) then
             local boxCFrame, boxSize = block:GetBoundingBox()
             local half = boxSize * 0.5
+
             for x = -1, 1, 2 do
                 for y = -1, 1, 2 do
                     for z = -1, 1, 2 do
-                        local corner = (boxCFrame * CFrame.new(
+                        local worldCorner = (boxCFrame * CFrame.new(
                             half.X * x, half.Y * y, half.Z * z
                         )).Position
-                        minX = math.min(minX, corner.X)
-                        minY = math.min(minY, corner.Y)
-                        minZ = math.min(minZ, corner.Z)
-                        maxX = math.max(maxX, corner.X)
-                        maxY = math.max(maxY, corner.Y)
-                        maxZ = math.max(maxZ, corner.Z)
+                        local localCorner = driverPivot:PointToObjectSpace(worldCorner)
+
+                        minX = math.min(minX, localCorner.X)
+                        minY = math.min(minY, localCorner.Y)
+                        minZ = math.min(minZ, localCorner.Z)
+                        maxX = math.max(maxX, localCorner.X)
+                        maxY = math.max(maxY, localCorner.Y)
+                        maxZ = math.max(maxZ, localCorner.Z)
                     end
                 end
             end
@@ -198,17 +203,19 @@ local function GetGroupGizmoTransform(model)
 
     if minX == math.huge then return nil end
 
-    local center = Vector3.new(
+    local localCenter = Vector3.new(
         (minX + maxX) * 0.5,
         (minY + maxY) * 0.5,
         (minZ + maxZ) * 0.5
     )
     local size = Vector3.new(maxX - minX, maxY - minY, maxZ - minZ)
-    local driverPivot = model:GetPivot()
+    local center = driverPivot:PointToWorldSpace(localCenter)
     local orientation = driverPivot - driverPivot.Position
 
     return CFrame.new(center) * orientation, size
 end
+
+Env.RotateToolPivotOverride = GetGroupGizmoTransform
 
 local function ResetDriverPivot()
     local driver = GetDriver()
