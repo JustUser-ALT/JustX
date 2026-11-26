@@ -26,8 +26,8 @@ local OriginalLabelPosition = GridLabel.Position
 
 -- Initial proposal: 8 px to the right and 6 px upward.
 -- Adjust only these offsets while visually testing.
-local X_OFFSET = 8
-local Y_OFFSET = -6
+local X_OFFSET = 24
+local Y_OFFSET = -14
 
 local function ShiftPosition(position, x, y)
     return UDim2.new(
