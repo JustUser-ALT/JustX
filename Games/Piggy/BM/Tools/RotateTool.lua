@@ -1048,7 +1048,21 @@ end
 local StepModeConnection = Connect(ChangedEvent.Event:Connect(function(modeName)
     StepGui.Enabled = modeName == "Rotate"
 end))
-StepGui.Enabled = BuildingMode:Get() == RotateEnum
+local InitialModeOk, InitialMode = pcall(function()
+    return BuildingMode:Get()
+end)
+
+if not InitialModeOk then
+    warn("[RotateTool] BuildingMode:Get() failed during startup:", InitialMode)
+end
+
+local InitialGuiOk, InitialGuiError = pcall(function()
+    StepGui.Enabled = InitialModeOk and InitialMode == RotateEnum
+end)
+
+if not InitialGuiOk then
+    warn("[RotateTool] Initial StepGui.Enabled update failed:", InitialGuiError)
+end
 
 local SelectedModeName = "rotate tool"
 
