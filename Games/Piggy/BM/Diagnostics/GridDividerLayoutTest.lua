@@ -39,11 +39,11 @@ else
 end
 
 -- Layout test: move the control farther right and slightly enlarge it.
-local X_OFFSET = 40
-local Y_OFFSET = -14
-local INPUT_WIDTH = 64
-local INPUT_HEIGHT = 30
-local CORNER_RADIUS = 7
+local X_OFFSET = 70
+local Y_OFFSET = -24
+local INPUT_WIDTH = 72
+local INPUT_HEIGHT = 34
+local CORNER_RADIUS = 9
 
 local function ShiftPosition(position, x, y)
     return UDim2.new(
