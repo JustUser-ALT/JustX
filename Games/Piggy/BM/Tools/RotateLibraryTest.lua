@@ -1,6 +1,6 @@
 --==================================================
 -- JUST X LIBRARY · PIGGY ROTATE TEST
-print("[RotateLibraryTest] Loader build 8c93ae9")
+print("[RotateLibraryTest] Loader build b360ec4")
 -- Loads the existing RotateTool.lua implementation.
 -- No duplicate gizmo, toolbar, or selection implementation here.
 --==================================================
@@ -14,7 +14,7 @@ end
 
 local Env = (getgenv and getgenv()) or _G
 local LibraryUrl = "https://raw.githubusercontent.com/JustUser-ALT/JustXLibrary/main/JustLib.lua?v=397707e13e13c03ee42d4f7ff17e7dd7d7bde8efc"
-local ToolUrl = "https://raw.githubusercontent.com/JustUser-ALT/JustX/main/Games/Piggy/BM/Tools/RotateTool.lua?v=8c93ae9"
+local ToolUrl = "https://raw.githubusercontent.com/JustUser-ALT/JustX/main/Games/Piggy/BM/Tools/RotateTool.lua?v=b360ec43e83f040f64f1c1a573e54ae8ec0aeb95"
 
 -- Clean up a previous copy of this test loader.
 if type(Env.RotateLibraryTestCleanup) == "function" then
@@ -86,6 +86,8 @@ local function startRotate()
     local ok, err = xpcall(function()
         local source = game:HttpGet(ToolUrl)
         assert(type(source) == "string" and #source > 0, "RotateTool source is empty")
+        assert(source:find('local ROTATE_TOOL_BUILD = "b360ec43e83f040f64f1c1a573e54ae8ec0aeb95"', 1, true), "RotateTool source is stale or cache did not refresh")
+        print("[RotateLibraryTest] Verified RotateTool build b360ec4; source bytes:", #source)
 
         local chunk, compileError = loadstring(source)
         assert(type(chunk) == "function", compileError or "RotateTool compile failed")
