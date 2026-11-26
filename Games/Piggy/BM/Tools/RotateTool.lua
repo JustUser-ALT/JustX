@@ -3,7 +3,7 @@
 -- Native Build Mode Toolbar Integration
 -- Piggy Build Mode rotation tool
 --==================================================
-local ROTATE_TOOL_BUILD = "rotate-no-startup-get-20261126"
+local ROTATE_TOOL_BUILD = "touch-capture-20261126"
 
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
@@ -542,16 +542,16 @@ local function GetPointerPosition()
     return Vector2.new(position.X, position.Y)
 end
 
-local function StartHandleDrag(handleIndex)
+local function StartHandleDrag(handleIndex, forcedInputType)
     if IsDragging or not CurrentModel or not CurrentModel.Parent
         or UserInputService:GetFocusedTextBox() then
         return false
     end
 
     local lastInputType = UserInputService:GetLastInputType()
-    ActiveInputType = lastInputType == Enum.UserInputType.Touch
+    ActiveInputType = forcedInputType or (lastInputType == Enum.UserInputType.Touch
         and Enum.UserInputType.Touch
-        or Enum.UserInputType.MouseButton1
+        or Enum.UserInputType.MouseButton1)
 
     CurrentPointer = GetPointerPosition()
     SetActiveHandle(handleIndex)
@@ -579,6 +579,35 @@ local function StartHandleDrag(handleIndex)
     end)
 
     return true
+end
+
+local TouchCaptureAction = "JustXRotateTouchCapture"
+
+local function CaptureRotateTouch(_, inputState, inputObject)
+    if inputObject.UserInputType ~= Enum.UserInputType.Touch then
+        return Enum.ContextActionResult.Pass
+    end
+
+    if inputState == Enum.UserInputState.Begin then
+        if IsDragging then
+            return Enum.ContextActionResult.Sink
+        end
+
+        local pointer = Vector2.new(inputObject.Position.X, inputObject.Position.Y)
+        for index, handle in ipairs(Handles) do
+            if handle.Visible
+                and (handle.ScreenPosition - pointer).Magnitude <= HitRadius then
+                if StartHandleDrag(index, Enum.UserInputType.Touch) then
+                    return Enum.ContextActionResult.Sink
+                end
+                break
+            end
+        end
+    elseif IsDragging and ActiveInputType == Enum.UserInputType.Touch then
+        return Enum.ContextActionResult.Sink
+    end
+
+    return Enum.ContextActionResult.Pass
 end
 
 local function EndHandleDrag()
@@ -769,6 +798,15 @@ function RotateMode:Enter(clientState)
     self.Active = true
     self.Target = nil
 
+    CAS:UnbindAction(TouchCaptureAction)
+    CAS:BindActionAtPriority(
+        TouchCaptureAction,
+        CaptureRotateTouch,
+        false,
+        3000,
+        Enum.UserInputType.Touch
+    )
+
     if self.Outline then
         pcall(function()
             self.Outline:SetAdornee(nil)
@@ -778,6 +816,8 @@ function RotateMode:Enter(clientState)
     end
 
 function RotateMode:Exit()
+    CAS:UnbindAction(TouchCaptureAction)
+
     if IsDragging then
         FinishDrag()
     end
@@ -930,6 +970,8 @@ function RotateMode:Action(clientState)
 end
 
 function RotateMode:Destroy()
+    CAS:UnbindAction(TouchCaptureAction)
+
     if IsDragging then
         FinishDrag()
     end
