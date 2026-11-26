@@ -274,7 +274,7 @@ local DragPreviousVector
 local TotalDragAngle = 0
 local CurrentPointer
 local CurrentModel
-local DragConnection
+local HitRadius = 26
 
 local TouchScale = {
     None = 0.6,
@@ -491,6 +491,11 @@ local function BeginDrag(handleIndex, position)
 end
 
 local function FinishDrag()
+    if DragConnection then
+        DragConnection:Disconnect()
+        DragConnection = nil
+    end
+
     if IsDragging and CurrentModel and CurrentModel.Parent then
         local functionsFolder = RS:FindFirstChild("Functions")
         local commitMove = functionsFolder and functionsFolder:FindFirstChild("CommitMove")
