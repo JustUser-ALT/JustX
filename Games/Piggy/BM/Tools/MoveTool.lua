@@ -126,6 +126,9 @@ local cleaned = false
 local function Cleanup()
     if cleaned then return end
     cleaned = true
+    if type(Env.MultiSelectCleanup) == "function" then
+        pcall(Env.MultiSelectCleanup)
+    end
     if cachedFunction and cachedIndex and originalConstant ~= nil then
         pcall(debug.setconstant, cachedFunction, cachedIndex, originalConstant)
     end
@@ -138,3 +141,16 @@ local function Cleanup()
     print("[Move] Tool disabled")
 end
 Env.MoveToolCleanup = Cleanup
+
+-- Production multi-selection / group Move.
+local MultiSelectOk, MultiSelectError = pcall(function()
+    local source = game:HttpGet("https://raw.githubusercontent.com/JustUser-ALT/JustX/main/Games/Piggy/BM/Tools/MultiSelect.lua")
+    local chunk, compileError = loadstring(source)
+    assert(type(chunk) == "function", compileError or "[Move] MultiSelect loadstring failed")
+    chunk()
+end)
+
+if not MultiSelectOk then
+    Cleanup()
+    error("[Move] MultiSelect failed to start: " .. tostring(MultiSelectError), 0)
+end
