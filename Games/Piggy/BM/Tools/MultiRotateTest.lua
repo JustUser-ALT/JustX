@@ -273,19 +273,33 @@ local function GetHoveredBlock()
     return nil
 end
 
-local function RefreshSelection()
+local function RefreshSelection(updateBounds)
     for index = #Selection, 1, -1 do
         local block = Selection[index]
         if not IsValidBlock(block) then
             table.remove(Selection, index)
             RemoveOutline(block)
-        elseif not Outlines[block] then
-            CreateOutline(block)
+        else
+            local outline = Outlines[block]
+            if not outline then
+                CreateOutline(block)
+                outline = Outlines[block]
+            end
+            -- Rebind each outline while the blocks rotate so its bounds
+            -- follow the current model geometry instead of becoming oversized.
+            if outline then
+                pcall(function()
+                    outline:SetAdornee(nil)
+                    outline:SetAdornee(block)
+                end)
+            end
         end
     end
+
     if #Selection > 0 then
-        UpdateProxyBounds()
-        ClientState.SelectedBlock = ProxyModel
+        if updateBounds then
+            UpdateProxyBounds()
+        end
     else
         ClientState.SelectedBlock = nil
         ResetProxy()
@@ -301,7 +315,7 @@ local function ToggleBlock(block)
         table.insert(Selection, block)
         CreateOutline(block)
     end
-    RefreshSelection()
+    RefreshSelection(true)
 end
 
 local function ResetSelection()
@@ -337,7 +351,7 @@ local function WrappedRotateUpdate(self, dt, clientState)
         return OriginalRotateUpdate(self, dt, clientState)
     end
 
-    RefreshSelection()
+    RefreshSelection(false)
     local state = clientState or ClientState
     local previousSelected = state.SelectedBlock
     state.SelectedBlock = ProxyModel
@@ -394,7 +408,7 @@ end))
 
 table.insert(Connections, RunService.RenderStepped:Connect(function()
     if Cleaned or not MultiEnabled or not IsRotateMode() then return end
-    RefreshSelection()
+    RefreshSelection(false)
 end))
 
 local function Cleanup()
