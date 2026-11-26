@@ -78,22 +78,6 @@ Corner.CornerRadius = UDim.new(0, 10)
 Corner.Parent = Toggle
 Gui.Parent = PlayerGui
 
-local ProxyModel = Instance.new("Model")
-ProxyModel.Name = "JustXMultiRotateBounds"
-local ProxyPart = Instance.new("Part")
-ProxyPart.Name = "GroupRotateBounds"
-ProxyPart.Anchored = true
-ProxyPart.Transparency = 1
-ProxyPart.Size = Vector3.new(1, 1, 1)
-ProxyPart.CanCollide = false
-ProxyPart.CanTouch = false
-ProxyPart.CanQuery = false
-ProxyPart.CastShadow = false
-ProxyPart.Locked = true
-ProxyPart.Parent = ProxyModel
-ProxyModel.PrimaryPart = ProxyPart
-ProxyModel.Parent = BuildModel
-
 local Selection = {}
 local Outlines = {}
 local Connections = {}
@@ -101,7 +85,7 @@ local MultiEnabled = false
 local Cleaned = false
 local CommitBusy = false
 local GroupChanged = false
-local LastProxyPivot
+local LastDriverPivot
 
 local function IsRotateMode(mode)
     mode = mode or BuildingMode:Get()
@@ -113,7 +97,6 @@ end
 local function IsValidBlock(block)
     return typeof(block) == "Instance"
         and block:IsA("Model")
-        and block ~= ProxyModel
         and block.Parent == BuildModel
         and block.PrimaryPart ~= nil
 end
@@ -165,73 +148,69 @@ local function ClearOutlines()
     for _, block in ipairs(blocks) do RemoveOutline(block) end
 end
 
-local function UpdateProxyBounds()
+local function GetHoveredBlock()
+    local ok, result = pcall(function() return Placement:Raycast() end)
+    if not ok or not result or not result.Instance then return nil end
+    local candidate = result.Instance.Parent
+    if IsValidBlock(candidate) then return candidate end
+    return nil
+end
+
+local function GetDriver()
     local driver = Selection[#Selection]
-    if not IsValidBlock(driver) then return false end
+    if IsValidBlock(driver) then return driver end
+    return nil
+end
 
-    local driverPivot = driver:GetPivot()
-    local minimum = Vector3.new(math.huge, math.huge, math.huge)
-    local maximum = Vector3.new(-math.huge, -math.huge, -math.huge)
-    local found = false
+local function ResetDriverPivot()
+    local driver = GetDriver()
+    LastDriverPivot = driver and driver:GetPivot() or nil
+end
 
-    for _, block in ipairs(Selection) do
-        if IsValidBlock(block) then
-            local boxCFrame, boxSize = block:GetBoundingBox()
-            local half = boxSize * 0.5
-            for xSign = -1, 1, 2 do
-                for ySign = -1, 1, 2 do
-                    for zSign = -1, 1, 2 do
-                        local corner = boxCFrame:PointToWorldSpace(Vector3.new(
-                            half.X * xSign, half.Y * ySign, half.Z * zSign
-                        ))
-                        local localCorner = driverPivot:PointToObjectSpace(corner)
-                        minimum = Vector3.new(
-                            math.min(minimum.X, localCorner.X),
-                            math.min(minimum.Y, localCorner.Y),
-                            math.min(minimum.Z, localCorner.Z)
-                        )
-                        maximum = Vector3.new(
-                            math.max(maximum.X, localCorner.X),
-                            math.max(maximum.Y, localCorner.Y),
-                            math.max(maximum.Z, localCorner.Z)
-                        )
-                        found = true
-                    end
-                end
+local function ApplyDriverDelta()
+    local driver = GetDriver()
+    if not driver then
+        LastDriverPivot = nil
+        return
+    end
+
+    local current = driver:GetPivot()
+    if not LastDriverPivot then
+        LastDriverPivot = current
+        return
+    end
+
+    local delta = current * LastDriverPivot:Inverse()
+    local moved = (current.Position - LastDriverPivot.Position).Magnitude > 1e-5
+        or current.LookVector:Dot(LastDriverPivot.LookVector) < 0.999999
+
+    if moved then
+        GroupChanged = true
+        for _, block in ipairs(Selection) do
+            if block ~= driver and IsValidBlock(block) then
+                pcall(function()
+                    block:PivotTo(delta * block:GetPivot())
+                end)
             end
         end
     end
-    if not found then return false end
 
-    local center = (minimum + maximum) * 0.5
-    local size = maximum - minimum
-    ProxyPart.Size = Vector3.new(
-        math.max(size.X, 0.1),
-        math.max(size.Y, 0.1),
-        math.max(size.Z, 0.1)
-    )
-    ProxyModel:PivotTo(CFrame.new(driverPivot:PointToWorldSpace(center)) * driverPivot.Rotation)
-    LastProxyPivot = ProxyModel:GetPivot()
-    GroupChanged = false
-    return true
-end
-
-local function ResetProxy()
-    ProxyPart.Size = Vector3.new(1, 1, 1)
-    ProxyModel:PivotTo(CFrame.new(0, -10000, 0))
-    LastProxyPivot = nil
+    LastDriverPivot = current
 end
 
 local function CommitGroup()
     if CommitBusy or not GroupChanged then return end
     CommitBusy = true
     GroupChanged = false
+
+    local driver = GetDriver()
     local blocks = {}
     for _, block in ipairs(Selection) do
-        if IsValidBlock(block) then
+        if block ~= driver and IsValidBlock(block) then
             table.insert(blocks, block)
         end
     end
+
     task.spawn(function()
         for _, block in ipairs(blocks) do
             if IsValidBlock(block) then
@@ -247,32 +226,6 @@ local function CommitGroup()
     end)
 end
 
-local function ApplyProxyDelta()
-    if not LastProxyPivot or not IsValidBlock(Selection[#Selection]) then return end
-    local current = ProxyModel:GetPivot()
-    local delta = current * LastProxyPivot:Inverse()
-    if (current.Position - LastProxyPivot.Position).Magnitude > 1e-5
-        or current.LookVector:Dot(LastProxyPivot.LookVector) < 0.999999 then
-        GroupChanged = true
-        for _, block in ipairs(Selection) do
-            if IsValidBlock(block) then
-                pcall(function()
-                    block:PivotTo(delta * block:GetPivot())
-                end)
-            end
-        end
-    end
-    LastProxyPivot = current
-end
-
-local function GetHoveredBlock()
-    local ok, result = pcall(function() return Placement:Raycast() end)
-    if not ok or not result or not result.Instance then return nil end
-    local candidate = result.Instance.Parent
-    if IsValidBlock(candidate) then return candidate end
-    return nil
-end
-
 local function UpdateHoverOutline()
     if not RotateMode.Outline then return end
 
@@ -286,7 +239,7 @@ local function UpdateHoverOutline()
     end)
 end
 
-local function RefreshSelection(updateBounds)
+local function RefreshSelection()
     for index = #Selection, 1, -1 do
         local block = Selection[index]
         if not IsValidBlock(block) then
@@ -298,8 +251,6 @@ local function RefreshSelection(updateBounds)
                 CreateOutline(block)
                 outline = Outlines[block]
             end
-            -- Rebind each outline while the blocks rotate so its bounds
-            -- follow the current model geometry instead of becoming oversized.
             if outline then
                 pcall(function()
                     outline:SetAdornee(nil)
@@ -309,14 +260,7 @@ local function RefreshSelection(updateBounds)
         end
     end
 
-    if #Selection > 0 then
-        if updateBounds then
-            UpdateProxyBounds()
-        end
-    else
-        ClientState.SelectedBlock = nil
-        ResetProxy()
-    end
+    ResetDriverPivot()
 end
 
 local function ToggleBlock(block)
@@ -328,7 +272,7 @@ local function ToggleBlock(block)
         table.insert(Selection, block)
         CreateOutline(block)
     end
-    RefreshSelection(true)
+    RefreshSelection()
 end
 
 local function ResetSelection()
@@ -337,7 +281,7 @@ local function ResetSelection()
     table.clear(Selection)
     ClearOutlines()
     ClientState.SelectedBlock = nil
-    ResetProxy()
+    LastDriverPivot = nil
     UpdateButton()
 end
 
@@ -346,6 +290,7 @@ local function MultiRotatePlaceBlockAction(self, ...)
         return OriginalPlaceBlockAction(self, ...)
     end
 
+    ClientState.SelectedBlock = nil
     local block = GetHoveredBlock()
     if block then
         ToggleBlock(block)
@@ -357,28 +302,29 @@ end
 
 ClientState.PlaceBlockAction = MultiRotatePlaceBlockAction
 
--- Feed the proxy model to the original RotateMode. Its rings, handle hit
--- testing, drag math and mobile camera lock remain untouched.
+-- Keep the original RotateTool gizmo and touch handling attached to a real
+-- selected block. Its pivot delta is mirrored to the other selected blocks.
 local function WrappedRotateUpdate(self, dt, clientState)
-    if Cleaned or not MultiEnabled or not IsRotateMode() or #Selection == 0 then
+    if Cleaned or not MultiEnabled or not IsRotateMode() then
         return OriginalRotateUpdate(self, dt, clientState)
     end
 
-    RefreshSelection(false)
+    RefreshSelection()
+    local driver = GetDriver()
     local state = clientState or ClientState
-    local previousSelected = state.SelectedBlock
-    state.SelectedBlock = ProxyModel
+    if not driver then
+        state.SelectedBlock = nil
+        return OriginalRotateUpdate(self, dt, state)
+    end
 
+    state.SelectedBlock = driver
     local results = table.pack(pcall(OriginalRotateUpdate, self, dt, state))
-    state.SelectedBlock = previousSelected
+    ApplyDriverDelta()
 
     if not results[1] then
         error(results[2], 0)
     end
 
-    ApplyProxyDelta()
-    -- Keep RotateTool's native thin hover outline (0.03) available for
-    -- unselected blocks, so the next block to add is clearly indicated.
     UpdateHoverOutline()
     return table.unpack(results, 2, results.n)
 end
@@ -391,7 +337,7 @@ table.insert(Connections, Toggle.Activated:Connect(function()
     else
         MultiEnabled = true
         table.clear(Selection)
-        ResetProxy()
+        LastDriverPivot = nil
         ClientState.SelectedBlock = nil
         UpdateButton()
     end
@@ -415,7 +361,7 @@ table.insert(Connections, UserInputService.InputEnded:Connect(function(input)
         or input.KeyCode == Enum.KeyCode.ButtonR2 then
         task.defer(function()
             task.wait()
-            ApplyProxyDelta()
+            ApplyDriverDelta()
             CommitGroup()
             RefreshSelection()
         end)
@@ -424,7 +370,7 @@ end))
 
 table.insert(Connections, RunService.RenderStepped:Connect(function()
     if Cleaned or not MultiEnabled or not IsRotateMode() then return end
-    RefreshSelection(false)
+    RefreshSelection()
 end))
 
 local function Cleanup()
@@ -444,8 +390,7 @@ local function Cleanup()
     ClearOutlines()
     table.clear(Selection)
     ClientState.SelectedBlock = nil
-    ResetProxy()
-    pcall(function() ProxyModel:Destroy() end)
+    LastDriverPivot = nil
     pcall(function() Gui:Destroy() end)
     if Env.MultiRotateTestCleanup == Cleanup then
         Env.MultiRotateTestCleanup = nil
