@@ -193,6 +193,18 @@ local function RemoveOutline(block)
     end
 end
 
+-- BoxSelectionAdornment can retain its previous bounds after a block is
+-- resized. Rebuild only the selection outlines after the resize is committed.
+local function RefreshSelectionOutlines()
+    if Cleaned then return end
+    for _, block in ipairs(Selection) do
+        if IsValidBlock(block) then
+            RemoveOutline(block)
+            CreateOutline(block)
+        end
+    end
+end
+
 local function SetHandlesAdornee(target)
     pcall(function()
         Handles:SetAdornee(target)
@@ -438,6 +450,10 @@ local function CommitOtherBlocks()
                 end
             end
         end
+        -- Allow the native driver commit and mirrored commits to settle before
+        -- rebuilding the adornments against the blocks' new bounding boxes.
+        task.wait()
+        RefreshSelectionOutlines()
         CommitBusy = false
     end)
 end
