@@ -34,7 +34,7 @@ local function CreateGridDivider(options)
     local GridLabel = Instance.new("TextLabel")
     GridLabel.Name = "GridDividerLabel"
     GridLabel.Size = UDim2.fromOffset(72, 16)
-    GridLabel.Position = UDim2.new(0, 136, 1, -27)
+    GridLabel.Position = UDim2.new(0, 226, 1, -79)
     GridLabel.AnchorPoint = Vector2.new(0, 1)
     GridLabel.BackgroundTransparency = 1
     GridLabel.Text = "Grid Divider"
@@ -49,7 +49,7 @@ local function CreateGridDivider(options)
     local GridDivider = Instance.new("TextBox")
     GridDivider.Name = "GridDivider"
     GridDivider.Size = UDim2.fromOffset(55, 25)
-    GridDivider.Position = UDim2.new(0, 136, 1, 0)
+    GridDivider.Position = UDim2.new(0, 226, 1, -34)
     GridDivider.AnchorPoint = Vector2.new(0, 1)
     GridDivider.BackgroundColor3 = Color3.fromRGB(255, 142, 142)
     GridDivider.BorderSizePixel = 0
@@ -115,6 +115,11 @@ local function CreateGridDivider(options)
         GridDivider.TextSize = 12
         GridDivider.Font = Enum.Font.Gotham
     end
+
+    -- Final layout from the approved MultiMoveTest preview.
+    GridDivider.Size = UDim2.fromOffset(72, 34)
+    GridDivider.TextSize = 16
+    GridDivider.TextScaled = false
 
     Gui.Parent = playerGui
 
