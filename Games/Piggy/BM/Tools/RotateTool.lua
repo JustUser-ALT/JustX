@@ -295,6 +295,80 @@ local CurrentScale = UserInputService:GetLastInputType() == Enum.UserInputType.T
 
 local HandleConnections = {}
 
+-- The camera module consumes touch input through UserInputService itself.
+-- Sinking the ContextActionService action alone does not reliably stop its
+-- touch-pan state, so temporarily disable only camera input during a gizmo drag.
+local CameraInputController
+local CameraInputLocked = false
+local CameraInputWasEnabled = false
+local CameraInputWarningShown = false
+
+do
+    local ok, module = pcall(function()
+        local playerScripts = Player:WaitForChild("PlayerScripts")
+        local playerModule = playerScripts:WaitForChild("PlayerModule")
+        return playerModule:FindFirstChild("CameraInput", true)
+    end)
+
+    if ok and module and module:IsA("ModuleScript") then
+        local required, controller = pcall(require, module)
+        if required and type(controller) == "table"
+            and type(controller.setInputEnabled) == "function" then
+            CameraInputController = controller
+        end
+    end
+end
+
+local function LockCameraInput()
+    if CameraInputLocked then
+        return
+    end
+
+    if not CameraInputController then
+        if not CameraInputWarningShown then
+            CameraInputWarningShown = true
+            warn("[RotateTool] CameraInput module unavailable; camera lock fallback not available")
+        end
+        return
+    end
+
+    local ok, wasEnabled = pcall(function()
+        if type(CameraInputController.getInputEnabled) == "function" then
+            return CameraInputController.getInputEnabled()
+        end
+        return true
+    end)
+
+    if not ok then
+        return
+    end
+
+    CameraInputWasEnabled = wasEnabled ~= false
+    CameraInputLocked = true
+
+    if CameraInputWasEnabled then
+        pcall(function()
+            CameraInputController.setInputEnabled(false)
+        end)
+    end
+end
+
+local function UnlockCameraInput()
+    if not CameraInputLocked then
+        return
+    end
+
+    CameraInputLocked = false
+
+    if CameraInputWasEnabled and CameraInputController then
+        pcall(function()
+            CameraInputController.setInputEnabled(true)
+        end)
+    end
+
+    CameraInputWasEnabled = false
+end
+
 local InputTypeConnection = UserInputService.LastInputTypeChanged:Connect(function(inputType)
     if inputType == Enum.UserInputType.Touch then
         CurrentScale = TouchScale
@@ -515,6 +589,8 @@ local function BeginDrag(handleIndex, position)
 end
 
 local function FinishDrag()
+    UnlockCameraInput()
+
     if IsDragging and CurrentModel and CurrentModel.Parent then
         local functionsFolder = RS:FindFirstChild("Functions")
         local commitMove = functionsFolder and functionsFolder:FindFirstChild("CommitMove")
@@ -571,6 +647,10 @@ local function StartHandleDrag(handleIndex, inputType, pointer, touchInput)
         ActiveTouchInput = nil
         CurrentPointer = nil
         return false
+    end
+
+    if inputType == Enum.UserInputType.Touch then
+        LockCameraInput()
     end
 
     return true
@@ -706,6 +786,12 @@ end)
 local TouchEndedConnection = UserInputService.TouchEnded:Connect(function(inputObject)
     if ActiveInputType == Enum.UserInputType.Touch
         and inputObject == ActiveTouchInput then
+        EndHandleDrag()
+    end
+end)
+
+local WindowFocusReleasedConnection = UserInputService.WindowFocusReleased:Connect(function()
+    if ActiveInputType == Enum.UserInputType.Touch then
         EndHandleDrag()
     end
 end)
@@ -1056,6 +1142,11 @@ function RotateMode:Destroy()
         TouchEndedConnection:Disconnect()
         TouchEndedConnection = nil
     end
+    if WindowFocusReleasedConnection then
+        WindowFocusReleasedConnection:Disconnect()
+        WindowFocusReleasedConnection = nil
+    end
+    UnlockCameraInput()
     for _, connection in ipairs(HandleConnections) do
         pcall(function() connection:Disconnect() end)
     end
