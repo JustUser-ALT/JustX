@@ -193,14 +193,21 @@ local function RemoveOutline(block)
     end
 end
 
--- BoxSelectionAdornment can retain its previous bounds after a block is
--- resized. Rebuild only the selection outlines after the resize is committed.
+-- Force BoxSelectionAdornment to recalculate its bounds from the current
+-- block geometry. This is also used during an active drag, not only on commit.
 local function RefreshSelectionOutlines()
     if Cleaned then return end
     for _, block in ipairs(Selection) do
         if IsValidBlock(block) then
-            RemoveOutline(block)
-            CreateOutline(block)
+            local outline = Outlines[block]
+            if outline then
+                pcall(function()
+                    outline:SetAdornee(nil)
+                    outline:SetAdornee(block)
+                end)
+            else
+                CreateOutline(block)
+            end
         end
     end
 end
@@ -517,6 +524,12 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
         elseif not Outlines[block] then
             CreateOutline(block)
         end
+    end
+
+    if DragActive and MultiEnabled and IsResizeMode() then
+        -- ResizeParameters:Drag updates the parts continuously. Refresh every
+        -- selected outline so non-driver blocks track their changing bounds too.
+        RefreshSelectionOutlines()
     end
 
     if MultiEnabled and IsResizeMode() then
