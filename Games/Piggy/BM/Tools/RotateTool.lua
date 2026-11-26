@@ -266,7 +266,6 @@ local Handles = {}
 local Rings = {}
 local ActiveHandle
 local ActiveInputType
-local ActiveTouchInput
 local IsDragging = false
 local DragStartPivot
 local DragAxisWorld
@@ -275,8 +274,7 @@ local DragPreviousVector
 local TotalDragAngle = 0
 local CurrentPointer
 local CurrentModel
-local CaptureActionName = "JustX_RotateHandleCapture"
-local HitRadius = 26
+local DragConnection
 
 local TouchScale = {
     None = 0.6,
@@ -294,80 +292,7 @@ local CurrentScale = UserInputService:GetLastInputType() == Enum.UserInputType.T
     and TouchScale or MouseScale
 
 local HandleConnections = {}
-
--- The camera module consumes touch input through UserInputService itself.
--- Sinking the ContextActionService action alone does not reliably stop its
--- touch-pan state, so temporarily disable only camera input during a gizmo drag.
-local CameraInputController
-local CameraInputLocked = false
-local CameraInputWasEnabled = false
-local CameraInputWarningShown = false
-
-do
-    local ok, module = pcall(function()
-        local playerScripts = Player:WaitForChild("PlayerScripts")
-        local playerModule = playerScripts:WaitForChild("PlayerModule")
-        return playerModule:FindFirstChild("CameraInput", true)
-    end)
-
-    if ok and module and module:IsA("ModuleScript") then
-        local required, controller = pcall(require, module)
-        if required and type(controller) == "table"
-            and type(controller.setInputEnabled) == "function" then
-            CameraInputController = controller
-        end
-    end
-end
-
-local function LockCameraInput()
-    if CameraInputLocked then
-        return
-    end
-
-    if not CameraInputController then
-        if not CameraInputWarningShown then
-            CameraInputWarningShown = true
-            warn("[RotateTool] CameraInput module unavailable; camera lock fallback not available")
-        end
-        return
-    end
-
-    local ok, wasEnabled = pcall(function()
-        if type(CameraInputController.getInputEnabled) == "function" then
-            return CameraInputController.getInputEnabled()
-        end
-        return true
-    end)
-
-    if not ok then
-        return
-    end
-
-    CameraInputWasEnabled = wasEnabled ~= false
-    CameraInputLocked = true
-
-    if CameraInputWasEnabled then
-        pcall(function()
-            CameraInputController.setInputEnabled(false)
-        end)
-    end
-end
-
-local function UnlockCameraInput()
-    if not CameraInputLocked then
-        return
-    end
-
-    CameraInputLocked = false
-
-    if CameraInputWasEnabled and CameraInputController then
-        pcall(function()
-            CameraInputController.setInputEnabled(true)
-        end)
-    end
-
-    CameraInputWasEnabled = false
-end
+local DragConnection
 
 local InputTypeConnection = UserInputService.LastInputTypeChanged:Connect(function(inputType)
     if inputType == Enum.UserInputType.Touch then
@@ -462,29 +387,6 @@ local function SetModel(model)
     end
 
     local size = GetModelSize(model)
-end
-
-local function GetScreenPosition(inputObject)
-    -- ScreenPointToRay and WorldToScreenPoint use the same screen coordinate space.
-    local position = inputObject.Position
-    return Vector2.new(position.X, position.Y)
-end
-
-local function FindHandleAt(position)
-    local closestIndex
-    local closestDistance = HitRadius
-
-    for index, handle in ipairs(Handles) do
-        if handle.Visible then
-            local distance = (handle.ScreenPosition - position).Magnitude
-            if distance <= closestDistance then
-                closestDistance = distance
-                closestIndex = index
-            end
-        end
-    end
-
-    return closestIndex
 end
 
 local function GetMousePositionOnPlane(position, origin, normal)
@@ -589,8 +491,6 @@ local function BeginDrag(handleIndex, position)
 end
 
 local function FinishDrag()
-    UnlockCameraInput()
-
     if IsDragging and CurrentModel and CurrentModel.Parent then
         local functionsFolder = RS:FindFirstChild("Functions")
         local commitMove = functionsFolder and functionsFolder:FindFirstChild("CommitMove")
@@ -631,44 +531,65 @@ local function SetActiveHandle(index)
     end
 end
 
-local function StartHandleDrag(handleIndex, inputType, pointer, touchInput)
-    if IsDragging or not CurrentModel or not CurrentModel.Parent then
+local function GetPointerPosition()
+    local position = UserInputService:GetMouseLocation()
+    return Vector2.new(position.X, position.Y)
+end
+
+local function StartHandleDrag(handleIndex)
+    if IsDragging or not CurrentModel or not CurrentModel.Parent
+        or UserInputService:GetFocusedTextBox() then
         return false
     end
 
-    ActiveInputType = inputType
-    ActiveTouchInput = touchInput
-    CurrentPointer = pointer
+    local lastInputType = UserInputService:GetLastInputType()
+    ActiveInputType = lastInputType == Enum.UserInputType.Touch
+        and Enum.UserInputType.Touch
+        or Enum.UserInputType.MouseButton1
+
+    CurrentPointer = GetPointerPosition()
     SetActiveHandle(handleIndex)
 
-    if not BeginDrag(handleIndex, pointer) then
+    if not BeginDrag(handleIndex, CurrentPointer) then
         SetActiveHandle(nil)
         ActiveInputType = nil
-        ActiveTouchInput = nil
         CurrentPointer = nil
         return false
     end
 
-    if inputType == Enum.UserInputType.Touch then
-        LockCameraInput()
-    end
+    -- Match the original RotateDragger: movement is tracked only during a drag.
+    DragConnection = UserInputService.InputChanged:Connect(function(inputObject)
+        if not IsDragging then
+            return
+        end
+
+        if ActiveInputType == Enum.UserInputType.Touch
+            and inputObject.UserInputType == Enum.UserInputType.Touch then
+            CurrentPointer = GetPointerPosition()
+        elseif ActiveInputType == Enum.UserInputType.MouseButton1
+            and inputObject.UserInputType == Enum.UserInputType.MouseMovement then
+            CurrentPointer = GetPointerPosition()
+        end
+    end)
 
     return true
 end
 
 local function EndHandleDrag()
+    if DragConnection then
+        DragConnection:Disconnect()
+        DragConnection = nil
+    end
+
     if IsDragging then
         FinishDrag()
     end
 
     SetActiveHandle(nil)
     ActiveInputType = nil
-    ActiveTouchInput = nil
     CurrentPointer = nil
 end
 
--- The source RotateDragger receives mouse input directly from the six SphereHandleAdornments.
--- Touch is routed separately because HandleAdornment mouse events are mouse-only.
 for index, handle in ipairs(Handles) do
     local sphere = handle.Sphere
 
@@ -681,121 +602,27 @@ for index, handle in ipairs(Handles) do
     end))
 
     table.insert(HandleConnections, sphere.MouseButton1Down:Connect(function()
-        if UserInputService:GetFocusedTextBox() then
-            return
-        end
-
-        local mousePosition = UserInputService:GetMouseLocation()
-        StartHandleDrag(
-            index,
-            Enum.UserInputType.MouseButton1,
-            Vector2.new(mousePosition.X, mousePosition.Y),
-            nil
-        )
-    end))
-
-    table.insert(HandleConnections, sphere.MouseButton1Up:Connect(function()
-        if ActiveInputType == Enum.UserInputType.MouseButton1 then
-            EndHandleDrag()
-        end
+        StartHandleDrag(index)
     end))
 end
-
-local function CaptureInput(_, inputState, inputObject)
-    -- A touch drag owns the touchscreen until its matching finger is released.
-    -- Sink additional touches too, so the camera cannot start a pinch/rotate gesture.
-    if IsDragging and ActiveInputType == Enum.UserInputType.Touch then
-        if inputState == Enum.UserInputState.Cancel then
-            EndHandleDrag()
-            return Enum.ContextActionResult.Sink
-        end
-
-        if inputObject.UserInputType == Enum.UserInputType.Touch then
-            if inputObject == ActiveTouchInput then
-                if inputState == Enum.UserInputState.Change then
-                    CurrentPointer = GetScreenPosition(inputObject)
-                elseif inputState == Enum.UserInputState.End then
-                    EndHandleDrag()
-                end
-            end
-            return Enum.ContextActionResult.Sink
-        end
-    end
-
-    if inputObject.UserInputType ~= Enum.UserInputType.Touch then
-        return Enum.ContextActionResult.Pass
-    end
-
-    if inputState == Enum.UserInputState.Begin then
-        if UserInputService:GetFocusedTextBox() then
-            return Enum.ContextActionResult.Pass
-        end
-
-        local pointer = GetScreenPosition(inputObject)
-        local handleIndex = FindHandleAt(pointer)
-
-        if not handleIndex then
-            return Enum.ContextActionResult.Pass
-        end
-
-        if not StartHandleDrag(handleIndex, Enum.UserInputType.Touch, pointer, inputObject) then
-            return Enum.ContextActionResult.Pass
-        end
-
-        return Enum.ContextActionResult.Sink
-    end
-
-    return Enum.ContextActionResult.Pass
-end
-
-local InputChangedConnection = UserInputService.InputChanged:Connect(function(inputObject)
-    if not IsDragging then
-        return
-    end
-
-    if ActiveInputType == Enum.UserInputType.MouseButton1
-        and inputObject.UserInputType == Enum.UserInputType.MouseMovement then
-        local mousePosition = UserInputService:GetMouseLocation()
-        CurrentPointer = Vector2.new(mousePosition.X, mousePosition.Y)
-    elseif ActiveInputType == Enum.UserInputType.Touch
-        and inputObject.UserInputType == Enum.UserInputType.Touch
-        and inputObject == ActiveTouchInput then
-        CurrentPointer = GetScreenPosition(inputObject)
-    end
-end)
-
-local TouchMovedConnection = UserInputService.TouchMoved:Connect(function(inputObject)
-    if IsDragging
-        and ActiveInputType == Enum.UserInputType.Touch
-        and inputObject == ActiveTouchInput then
-        CurrentPointer = GetScreenPosition(inputObject)
-    end
-end)
 
 local InputEndedConnection = UserInputService.InputEnded:Connect(function(inputObject)
-    if ActiveInputType == Enum.UserInputType.MouseButton1
+    if ActiveInputType == Enum.UserInputType.Touch
+        and inputObject.UserInputType == Enum.UserInputType.Touch then
+        EndHandleDrag()
+    elseif ActiveInputType == Enum.UserInputType.MouseButton1
         and inputObject.UserInputType == Enum.UserInputType.MouseButton1 then
         EndHandleDrag()
-    elseif ActiveInputType == Enum.UserInputType.Touch
-        and inputObject.UserInputType == Enum.UserInputType.Touch
-        and inputObject == ActiveTouchInput then
-        EndHandleDrag()
-    end
-end)
-
-local TouchEndedConnection = UserInputService.TouchEnded:Connect(function(inputObject)
-    if ActiveInputType == Enum.UserInputType.Touch
-        and inputObject == ActiveTouchInput then
+    elseif inputObject.KeyCode == Enum.KeyCode.ButtonR2 then
         EndHandleDrag()
     end
 end)
 
 local WindowFocusReleasedConnection = UserInputService.WindowFocusReleased:Connect(function()
-    if ActiveInputType == Enum.UserInputType.Touch then
+    if IsDragging then
         EndHandleDrag()
     end
 end)
-
 
 local function UpdateGizmo()
     Camera = workspace.CurrentCamera
@@ -950,7 +777,6 @@ function RotateMode:Exit()
     end
     SetActiveHandle(nil)
     ActiveInputType = nil
-    ActiveTouchInput = nil
     CurrentPointer = nil
     SetModel(nil)
     HideHandles()
@@ -1000,24 +826,6 @@ function RotateMode:Update(dt, clientState)
 
         UpdateSelectedModel(selected)
 
-        -- Touch End/Cancel can be missed by the bound action on some mobile clients.
-        -- Watch the original InputObject as a fallback so the active marker never stays white.
-        if ActiveInputType == Enum.UserInputType.Touch
-            and ActiveTouchInput
-            and (ActiveTouchInput.UserInputState == Enum.UserInputState.End
-                or ActiveTouchInput.UserInputState == Enum.UserInputState.Cancel) then
-            if IsDragging then
-                FinishDrag()
-            end
-            SetActiveHandle(nil)
-            ActiveInputType = nil
-            ActiveTouchInput = nil
-            CurrentPointer = nil
-        end
-
-        if ActiveHandle and ActiveInputType == Enum.UserInputType.Touch and ActiveTouchInput then
-            CurrentPointer = GetScreenPosition(ActiveTouchInput)
-        end
         if IsDragging and CurrentPointer then
             ApplyDrag(CurrentPointer)
         end
@@ -1031,7 +839,6 @@ function RotateMode:Update(dt, clientState)
     end
     SetActiveHandle(nil)
     ActiveInputType = nil
-    ActiveTouchInput = nil
     CurrentPointer = nil
     SetModel(nil)
     HideHandles()
@@ -1105,7 +912,6 @@ function RotateMode:Action(clientState)
         end
         SetActiveHandle(nil)
         ActiveInputType = nil
-        ActiveTouchInput = nil
         CurrentPointer = nil
         SetModel(nil)
         HideHandles()
@@ -1121,11 +927,6 @@ function RotateMode:Destroy()
     if IsDragging then
         FinishDrag()
     end
-    CAS:UnbindAction(CaptureActionName)
-    if InputChangedConnection then
-        InputChangedConnection:Disconnect()
-        InputChangedConnection = nil
-    end
     if InputTypeConnection then
         InputTypeConnection:Disconnect()
         InputTypeConnection = nil
@@ -1134,19 +935,10 @@ function RotateMode:Destroy()
         InputEndedConnection:Disconnect()
         InputEndedConnection = nil
     end
-    if TouchMovedConnection then
-        TouchMovedConnection:Disconnect()
-        TouchMovedConnection = nil
-    end
-    if TouchEndedConnection then
-        TouchEndedConnection:Disconnect()
-        TouchEndedConnection = nil
-    end
     if WindowFocusReleasedConnection then
         WindowFocusReleasedConnection:Disconnect()
         WindowFocusReleasedConnection = nil
     end
-    UnlockCameraInput()
     for _, connection in ipairs(HandleConnections) do
         pcall(function() connection:Disconnect() end)
     end
@@ -1174,14 +966,6 @@ end
 local PreviousRenderMode = rawget(RenderModes, "Rotate")
 RenderModes.Rotate = RotateMode
 RotateMode:Init(ClientState)
-
-CAS:BindActionAtPriority(
-    CaptureActionName,
-    CaptureInput,
-    false,
-    4000,
-    Enum.UserInputType.Touch
-)
 
 --==================================================
 -- ROUTE THE MAIN PLACE-BLOCK BUTTON TO ROTATE
