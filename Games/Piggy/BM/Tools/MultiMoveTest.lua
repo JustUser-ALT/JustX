@@ -255,6 +255,9 @@ local OriginalMoveUpdate = MoveMode.Update
 local OriginalRawSetAdornee = rawget(MoveHandles, "SetAdornee")
 local RealSetAdornee = MoveHandles.SetAdornee
 
+local IsMoveMode
+local IsValidBlock
+
 local function GetMultiHandlesAdornee()
     if Cleaned or not MultiEnabled or not IsMoveMode() then
         return nil
@@ -325,13 +328,13 @@ local function ModeName()
     return tostring(mode):match("([^%.]+)$") or tostring(mode)
 end
 
-local function IsMoveMode(mode)
+IsMoveMode = function(mode)
     mode = mode or BuildingMode:Get()
     local modeName = tostring(mode):match("([^%.]+)$")
     return mode == MoveModeValue or modeName == "Move" or mode == "Move"
 end
 
-local function IsValidBlock(block)
+IsValidBlock = function(block)
     return typeof(block) == "Instance"
         and block:IsA("Model")
         and block.Parent == BuildModel
@@ -355,12 +358,42 @@ local function UpdateControls()
 end
 
 local function CreateOutline(block)
-    local outline = BoxSelectionAdornment.new()
-    outline:SetParent(AdornmentParent)
-    outline:SetColor(Color3.fromRGB(0, 0, 255))
-    outline:SetThickness(0.1)
-    outline:SetAdornee(block)
+    if not IsValidBlock(block) then return false end
+
+    local existing = Outlines[block]
+    if existing then
+        local ok, parent = pcall(function()
+            return existing.Parent
+        end)
+        if ok and parent then
+            return true
+        end
+        Outlines[block] = nil
+    end
+
+    local outline
+    local ok, err = pcall(function()
+        outline = BoxSelectionAdornment.new()
+        assert(outline, "BoxSelectionAdornment.new() returned nil")
+        outline:SetParent(AdornmentParent)
+        outline:SetColor(Color3.fromRGB(0, 0, 255))
+        outline:SetThickness(0.1)
+        outline:SetAdornee(block)
+    end)
+
+    if not ok then
+        if outline then
+            pcall(function()
+                outline:SetAdornee(nil)
+                outline:Destroy()
+            end)
+        end
+        warn("[MultiMoveTest] Outline creation failed for", block:GetFullName(), err)
+        return false
+    end
+
     Outlines[block] = outline
+    return true
 end
 
 local function RemoveOutline(block)
@@ -520,8 +553,8 @@ local function ToggleBlock(block)
         print("[MultiMoveTest] Removed:", block:GetFullName())
     else
         table.insert(Selection, block)
-        CreateOutline(block)
-        print("[MultiMoveTest] Added:", block:GetFullName())
+        local outlined = CreateOutline(block)
+        print("[MultiMoveTest] Added:", block:GetFullName(), "outline:", outlined)
     end
 
     -- One selected block uses the native single-block Move handles.
@@ -742,6 +775,10 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
         if not IsValidBlock(block) then
             table.remove(Selection, index)
             RemoveOutline(block)
+        elseif not Outlines[block] then
+            -- Selection and its visual adornment are deliberately tracked
+            -- separately. Retry any outline that failed during the click.
+            CreateOutline(block)
         end
     end
 
