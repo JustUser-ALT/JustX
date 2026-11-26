@@ -1,5 +1,6 @@
 --==================================================
 -- JUST X LIBRARY · PIGGY ROTATE TEST
+print("[RotateLibraryTest] Loader build 7f9156e")
 -- Loads the existing RotateTool.lua implementation.
 -- No duplicate gizmo, toolbar, or selection implementation here.
 --==================================================
