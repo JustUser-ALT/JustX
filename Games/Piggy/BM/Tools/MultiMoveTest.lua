@@ -255,23 +255,40 @@ local OriginalMoveUpdate = MoveMode.Update
 local OriginalRawSetAdornee = rawget(MoveHandles, "SetAdornee")
 local RealSetAdornee = MoveHandles.SetAdornee
 
-local function IsGroupArmedForHandles()
-    local selected = ClientState.SelectedBlock
-    return not Cleaned
-        and GroupArmed
-        and typeof(selected) == "Instance"
-        and selected:IsA("Model")
-        and selected.Parent == BuildModel
-        and ProxyModel.Parent == workspace
+local function GetMultiHandlesAdornee()
+    if Cleaned or not MultiEnabled or not IsMoveMode() then
+        return nil
+    end
+
+    if GroupArmed then
+        local selected = ClientState.SelectedBlock
+        if typeof(selected) == "Instance"
+            and selected:IsA("Model")
+            and selected.Parent == BuildModel
+            and ProxyModel.Parent == workspace then
+            return ProxyModel
+        end
+        return nil
+    end
+
+    -- A lone selected block must not occupy ClientState.SelectedBlock:
+    -- that state is consumed by BuildMode's main action and prevents
+    -- the next block from being selected. Keep only the visual handle.
+    if #Selection == 1 and IsValidBlock(Selection[1]) then
+        return Selection[1]
+    end
+
+    return nil
 end
 
 local function WrappedMoveUpdate(self, ...)
-    if not IsGroupArmedForHandles() then
+    local target = GetMultiHandlesAdornee()
+    if not target then
         return OriginalMoveUpdate(self, ...)
     end
 
-    -- Preserve native Move.Update behavior except its attempt to
-    -- replace the group proxy with the single selected driver.
+    -- Let native Move.Update refresh its internal state while preventing
+    -- it from replacing the selection's handle target.
     rawset(MoveHandles, "SetAdornee", function() end)
 
     local results = table.pack(pcall(OriginalMoveUpdate, self, ...))
@@ -287,10 +304,11 @@ local function WrappedMoveUpdate(self, ...)
         error(results[2], 0)
     end
 
-    if IsGroupArmedForHandles() then
-        local ok, err = pcall(RealSetAdornee, MoveHandles, ProxyModel)
+    target = GetMultiHandlesAdornee()
+    if target then
+        local ok, err = pcall(RealSetAdornee, MoveHandles, target)
         if not ok then
-            warn("[MultiMoveTest] Group handle positioning failed:", err)
+            warn("[MultiMoveTest] Handle positioning failed:", err)
         end
     end
 
@@ -519,9 +537,10 @@ local function ToggleBlock(block)
     elseif #Selection == 1 then
         GroupArmed = false
         DragSession = nil
-        local selected = Selection[1]
-        ClientState.SelectedBlock = selected
-        SetMoveHandlesAdornee(selected)
+        -- Do not set ClientState.SelectedBlock here. The main BuildMode
+        -- action must remain free to add the next block to the selection.
+        ClientState.SelectedBlock = nil
+        SetMoveHandlesAdornee(Selection[1])
     else
         GroupArmed = false
         DragSession = nil
@@ -737,9 +756,13 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
             end
             UpdateProxyBounds()
         elseif #Selection == 1 then
+            -- Keep the single-block handles visible without occupying
+            -- BuildMode's SelectedBlock state.
+            if ClientState.SelectedBlock ~= nil then
+                ClientState.SelectedBlock = nil
+            end
             local selected = Selection[1]
-            if IsValidBlock(selected) and ClientState.SelectedBlock ~= selected then
-                ClientState.SelectedBlock = selected
+            if IsValidBlock(selected) and MoveHandles._Adornee ~= selected then
                 SetMoveHandlesAdornee(selected)
             end
         elseif ClientState.SelectedBlock ~= nil then
