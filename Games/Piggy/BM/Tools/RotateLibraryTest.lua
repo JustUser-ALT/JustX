@@ -12,7 +12,7 @@ if not LocalPlayer then
 end
 
 local Env = (getgenv and getgenv()) or _G
-local LibraryUrl = "https://raw.githubusercontent.com/JustUser-ALT/JustXLibrary/main/JustLib.lua"
+local LibraryUrl = "https://raw.githubusercontent.com/JustUser-ALT/JustXLibrary/main/JustLib.lua?v=397707e13e13c03ee42d4f7ff17e7dd7d7bde8efc"
 local ToolUrl = "https://raw.githubusercontent.com/JustUser-ALT/JustX/main/Games/Piggy/BM/Tools/RotateTool.lua"
 
 -- Clean up a previous copy of this test loader.
@@ -21,7 +21,16 @@ if type(Env.RotateLibraryTestCleanup) == "function" then
 end
 
 local LibraryOk, JL = pcall(function()
-    return loadstring(game:HttpGet(LibraryUrl))()
+    local LibrarySource = game:HttpGet(LibraryUrl)
+    assert(type(LibrarySource) == "string" and #LibrarySource > 0, "JustXLibrary source is empty")
+    assert(
+        string.find(LibrarySource, "restricted executor threads", 1, true),
+        "Downloaded JustXLibrary does not contain BG.face fix 397707e; possible stale cache"
+    )
+    print("[RotateLibraryTest] JustXLibrary fix 397707e verified")
+    local LibraryChunk, LibraryCompileError = loadstring(LibrarySource)
+    assert(type(LibraryChunk) == "function", LibraryCompileError or "JustXLibrary compile failed")
+    return LibraryChunk()
 end)
 
 if not LibraryOk or type(JL) ~= "table" or type(JL.Window) ~= "function" then
