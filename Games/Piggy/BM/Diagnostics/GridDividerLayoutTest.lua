@@ -44,6 +44,8 @@ local Y_OFFSET = -34
 local INPUT_WIDTH = 72
 local INPUT_HEIGHT = 34
 local CORNER_RADIUS = 9
+local LABEL_EXTRA_Y = -18
+local INPUT_TEXT_SIZE = 16
 
 local function ShiftPosition(position, x, y)
     return UDim2.new(
@@ -55,8 +57,10 @@ local function ShiftPosition(position, x, y)
 end
 
 GridDivider.Position = ShiftPosition(OriginalInputPosition, X_OFFSET, Y_OFFSET)
-GridLabel.Position = ShiftPosition(OriginalLabelPosition, X_OFFSET, Y_OFFSET)
+GridLabel.Position = ShiftPosition(OriginalLabelPosition, X_OFFSET, Y_OFFSET + LABEL_EXTRA_Y)
 GridDivider.Size = UDim2.fromOffset(INPUT_WIDTH, INPUT_HEIGHT)
+GridDivider.TextSize = INPUT_TEXT_SIZE
+GridDivider.TextScaled = false
 Corner.CornerRadius = UDim.new(0, CORNER_RADIUS)
 
 local Cleaned = false
@@ -91,5 +95,5 @@ end
 
 Env.GridDividerLayoutTestCleanup = Cleanup
 
-print("[GridDividerLayoutTest] Applied: X +" .. X_OFFSET .. " px, Y " .. Y_OFFSET .. " px, size " .. INPUT_WIDTH .. "x" .. INPUT_HEIGHT .. ", rounded corners")
+print("[GridDividerLayoutTest] Applied: X +" .. X_OFFSET .. " px, Y " .. Y_OFFSET .. " px, size " .. INPUT_WIDTH .. "x" .. INPUT_HEIGHT .. ", text size " .. INPUT_TEXT_SIZE .. ", label extra Y " .. LABEL_EXTRA_Y .. " px, rounded corners")
 print("[GridDividerLayoutTest] Run getgenv().GridDividerLayoutTestCleanup() to restore")
