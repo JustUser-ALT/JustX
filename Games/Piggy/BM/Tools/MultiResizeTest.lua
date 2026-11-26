@@ -171,7 +171,7 @@ local function CreateOutline(block)
         outline = BoxSelectionAdornment.new()
         outline:SetParent(AdornmentParent)
         outline:SetColor(Color3.fromRGB(255, 127, 0))
-        outline:SetThickness(0.03)
+        outline:SetThickness(0.1)
         outline:SetAdornee(block)
     end)
     if ok then
