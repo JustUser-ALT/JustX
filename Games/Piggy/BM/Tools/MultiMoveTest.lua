@@ -264,11 +264,11 @@ local function GetMultiHandlesAdornee()
     end
 
     if GroupArmed then
-        local selected = ClientState.SelectedBlock
-        if typeof(selected) == "Instance"
-            and selected:IsA("Model")
-            and selected.Parent == BuildModel
-            and ProxyModel.Parent == workspace then
+        -- Group handles are visualized from the current selection, not
+        -- ClientState.SelectedBlock. That state stays free during selection
+        -- and is assigned only when the user starts dragging the handles.
+        local driver = Selection[#Selection]
+        if IsValidBlock(driver) and ProxyModel.Parent == workspace then
             return ProxyModel
         end
         return nil
