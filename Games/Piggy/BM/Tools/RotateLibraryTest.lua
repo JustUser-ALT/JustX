@@ -1,6 +1,6 @@
 --==================================================
 -- JUST X LIBRARY · PIGGY ROTATE TEST
-print("[RotateLibraryTest] Loader build bbe0687")
+print("[RotateLibraryTest] Loader build 6b9654c")
 -- Loads the existing RotateTool.lua implementation.
 -- No duplicate gizmo, toolbar, or selection implementation here.
 --==================================================
@@ -14,7 +14,7 @@ end
 
 local Env = (getgenv and getgenv()) or _G
 local LibraryUrl = "https://raw.githubusercontent.com/JustUser-ALT/JustXLibrary/main/JustLib.lua?v=397707e13e13c03ee42d4f7ff17e7dd7d7bde8efc"
-local ToolUrl = "https://raw.githubusercontent.com/JustUser-ALT/JustX/main/Games/Piggy/BM/Tools/RotateTool.lua?v=bbe06872f07e7a7c1b1fe0f79f0de43ce3df5502"
+local ToolUrl = "https://raw.githubusercontent.com/JustUser-ALT/JustX/main/Games/Piggy/BM/Tools/RotateTool.lua?v=6b9654c150cb8286d62ba418f02d96db94622735"
 
 -- Clean up a previous copy of this test loader.
 if type(Env.RotateLibraryTestCleanup) == "function" then
@@ -86,8 +86,8 @@ local function startRotate()
     local ok, err = xpcall(function()
         local source = game:HttpGet(ToolUrl)
         assert(type(source) == "string" and #source > 0, "RotateTool source is empty")
-        assert(source:find('local ROTATE_TOOL_BUILD = "touch-capture-20261126"', 1, true), "RotateTool source is stale or cache did not refresh")
-        print("[RotateLibraryTest] Verified RotateTool build touch-capture-20261126; source bytes:", #source)
+        assert(source:find('local ROTATE_TOOL_BUILD = "touch-camera-lock-20261126"', 1, true), "RotateTool source is stale or cache did not refresh")
+        print("[RotateLibraryTest] Verified RotateTool build touch-camera-lock-20261126; source bytes:", #source)
 
         local chunk, compileError = loadstring(source)
         assert(type(chunk) == "function", compileError or "RotateTool compile failed")
