@@ -135,6 +135,7 @@ local Connections = {}
 local MultiEnabled = false
 local DragObjects = {}
 local DragActive = false
+local DragDriver = nil
 local Cleaned = false
 local CommitBusy = false
 
@@ -413,7 +414,7 @@ local function CommitOtherBlocks()
     if CommitBusy or not MultiEnabled or #Selection < 2 then return end
     CommitBusy = true
     task.spawn(function()
-        local driver = ClientState.SelectedBlock
+        local driver = DragDriver
         for _, block in ipairs(Selection) do
             if block ~= driver and IsValidBlock(block) then
                 local realParts = {}
@@ -445,7 +446,7 @@ end
 local function OnResizeDown()
     if not MultiEnabled or #Selection < 2 then return end
     DragActive = true
-    table.clear(DragObjects)
+    DragDriver = ClientState.SelectedBlock
 end
 
 local function OnResizeUp()
@@ -455,6 +456,7 @@ local function OnResizeUp()
         task.wait()
         CommitOtherBlocks()
         table.clear(DragObjects)
+        DragDriver = nil
         if MultiEnabled and #Selection >= 2 then
             ClientState.SelectedBlock = Selection[#Selection]
             UpdateProxyBounds()
