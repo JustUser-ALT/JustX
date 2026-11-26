@@ -170,8 +170,8 @@ local function CreateOutline(block)
     local ok, err = pcall(function()
         outline = BoxSelectionAdornment.new()
         outline:SetParent(AdornmentParent)
-        outline:SetColor(Color3.fromRGB(0, 0, 255))
-        outline:SetThickness(0.1)
+        outline:SetColor(Color3.fromRGB(255, 127, 0))
+        outline:SetThickness(0.03)
         outline:SetAdornee(block)
     end)
     if ok then
@@ -328,17 +328,16 @@ local function ToggleBlock(block)
     DragActive = false
     table.clear(DragObjects)
 
+    -- Keep BuildMode's selection state free so the next click can add
+    -- another block. The selected block is assigned only for a real drag.
+    ClientState.SelectedBlock = nil
     if #Selection == 0 then
-        ClientState.SelectedBlock = nil
         SetHandlesAdornee(nil)
+    elseif #Selection >= 2 then
+        UpdateProxyBounds()
+        SetHandlesAdornee(ProxyModel)
     else
-        ClientState.SelectedBlock = Selection[#Selection]
-        if #Selection >= 2 then
-            UpdateProxyBounds()
-            SetHandlesAdornee(ProxyModel)
-        else
-            SetHandlesAdornee(Selection[1])
-        end
+        SetHandlesAdornee(Selection[1])
     end
     UpdateButton()
 end
@@ -446,7 +445,8 @@ end
 local function OnResizeDown()
     if not MultiEnabled or #Selection < 2 then return end
     DragActive = true
-    DragDriver = ClientState.SelectedBlock
+    DragDriver = Selection[#Selection]
+    ClientState.SelectedBlock = DragDriver
 end
 
 local function OnResizeUp()
@@ -505,16 +505,17 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
 
     if MultiEnabled and IsResizeMode() then
         if #Selection >= 2 then
-            -- Keep the selected driver available to native Resize callbacks.
+            -- Do not occupy SelectedBlock between clicks: BuildMode uses it
+            -- to decide whether the next click is a new selection or an action.
             if not DragActive then
-                ClientState.SelectedBlock = Selection[#Selection]
+                ClientState.SelectedBlock = nil
                 UpdateProxyBounds()
                 if Handles._Adornee ~= ProxyModel then
                     SetHandlesAdornee(ProxyModel)
                 end
             end
         elseif #Selection == 1 then
-            ClientState.SelectedBlock = Selection[1]
+            ClientState.SelectedBlock = nil
             if Handles._Adornee ~= Selection[1] then
                 SetHandlesAdornee(Selection[1])
             end
