@@ -407,10 +407,9 @@ local function RemoveOutline(block)
 end
 
 local function SetDriver()
-    local driver = Selection[#Selection]
-    if IsValidBlock(driver) then
-        ClientState.SelectedBlock = driver
-    end
+    -- Do not occupy BuildMode's SelectedBlock while selecting.
+    -- BeginGroupDrag assigns the driver only for the duration of a drag.
+    ClientState.SelectedBlock = nil
 end
 
 local function UpdateProxyBounds()
@@ -602,6 +601,8 @@ local function MultiMovePlaceBlockAction(self, ...)
     -- The main BuildMode action always edits the selection, even while
     -- group handles are visible. ToggleBlock will re-arm the correct handles
     -- after adding or removing the block.
+    -- A previous group driver must never block the next selection click.
+    ClientState.SelectedBlock = nil
     local block = GetHoveredBlock()
     if block then
         ToggleBlock(block)
@@ -764,6 +765,9 @@ table.insert(Connections, MoveHandles.MouseButton1Up:Connect(function()
     task.defer(function()
         task.wait()
         CommitGroupOthers()
+        if MultiEnabled and GroupArmed then
+            ClientState.SelectedBlock = nil
+        end
     end)
 end))
 
@@ -787,9 +791,10 @@ table.insert(Connections, RunService.RenderStepped:Connect(function()
             ApplyGroupDelta()
         end
         if GroupArmed then
-            local driver = Selection[#Selection]
-            if IsValidBlock(driver) and ClientState.SelectedBlock ~= driver then
-                ClientState.SelectedBlock = driver
+            -- Keep the main BuildMode action free to select more blocks.
+            -- The driver is assigned only in BeginGroupDrag().
+            if not DragSession and ClientState.SelectedBlock ~= nil then
+                ClientState.SelectedBlock = nil
             end
             UpdateProxyBounds()
         elseif #Selection == 1 then
