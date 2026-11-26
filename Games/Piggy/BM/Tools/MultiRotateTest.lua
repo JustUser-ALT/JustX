@@ -273,6 +273,19 @@ local function GetHoveredBlock()
     return nil
 end
 
+local function UpdateHoverOutline()
+    if not RotateMode.Outline then return end
+
+    local hovered = GetHoveredBlock()
+    if hovered and FindIndex(hovered) then
+        hovered = nil
+    end
+
+    pcall(function()
+        RotateMode.Outline:SetAdornee(hovered)
+    end)
+end
+
 local function RefreshSelection(updateBounds)
     for index = #Selection, 1, -1 do
         local block = Selection[index]
@@ -364,6 +377,9 @@ local function WrappedRotateUpdate(self, dt, clientState)
     end
 
     ApplyProxyDelta()
+    -- Keep RotateTool's native thin hover outline (0.03) available for
+    -- unselected blocks, so the next block to add is clearly indicated.
+    UpdateHoverOutline()
     return table.unpack(results, 2, results.n)
 end
 RotateMode.Update = WrappedRotateUpdate
