@@ -50,6 +50,8 @@ assert(ClientState, "[MultiRotateTest] BuildModeClient not found")
 
 local OriginalPlaceBlockAction = ClientState.PlaceBlockAction
 local OriginalRotateUpdate = RotateMode.Update
+local PreviousPivotOverride = Env.RotateToolPivotOverride
+Env.RotateToolPivotOverride = GetGroupGizmoTransform
 local Placement = PlacementLogic.new()
 local AdornmentParent = BuildModeGui:WaitForChild("Frame"):WaitForChild("Adornment")
 local CommitMove = RS:WaitForChild("Functions"):WaitForChild("CommitMove")
@@ -160,6 +162,52 @@ local function GetDriver()
     local driver = Selection[#Selection]
     if IsValidBlock(driver) then return driver end
     return nil
+end
+
+-- Calculate a world-space bounding box for the complete selection. The
+-- gizmo orientation follows the real driver, but its origin is the group center.
+local function GetGroupGizmoTransform(model)
+    if not MultiEnabled or #Selection < 2 or model ~= GetDriver() then
+        return nil
+    end
+
+    local minX, minY, minZ = math.huge, math.huge, math.huge
+    local maxX, maxY, maxZ = -math.huge, -math.huge, -math.huge
+
+    for _, block in ipairs(Selection) do
+        if IsValidBlock(block) then
+            local boxCFrame, boxSize = block:GetBoundingBox()
+            local half = boxSize * 0.5
+            for x = -1, 1, 2 do
+                for y = -1, 1, 2 do
+                    for z = -1, 1, 2 do
+                        local corner = (boxCFrame * CFrame.new(
+                            half.X * x, half.Y * y, half.Z * z
+                        )).Position
+                        minX = math.min(minX, corner.X)
+                        minY = math.min(minY, corner.Y)
+                        minZ = math.min(minZ, corner.Z)
+                        maxX = math.max(maxX, corner.X)
+                        maxY = math.max(maxY, corner.Y)
+                        maxZ = math.max(maxZ, corner.Z)
+                    end
+                end
+            end
+        end
+    end
+
+    if minX == math.huge then return nil end
+
+    local center = Vector3.new(
+        (minX + maxX) * 0.5,
+        (minY + maxY) * 0.5,
+        (minZ + maxZ) * 0.5
+    )
+    local size = Vector3.new(maxX - minX, maxY - minY, maxZ - minZ)
+    local driverPivot = model:GetPivot()
+    local orientation = driverPivot - driverPivot.Position
+
+    return CFrame.new(center) * orientation, size
 end
 
 local function ResetDriverPivot()
@@ -386,6 +434,9 @@ local function Cleanup()
     end
     if RotateMode.Update == WrappedRotateUpdate then
         RotateMode.Update = OriginalRotateUpdate
+    end
+    if Env.RotateToolPivotOverride == GetGroupGizmoTransform then
+        Env.RotateToolPivotOverride = PreviousPivotOverride
     end
     ClearOutlines()
     table.clear(Selection)
