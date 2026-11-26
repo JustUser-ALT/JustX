@@ -82,7 +82,8 @@ end
 local function startRotate()
     stopRotate()
 
-    local ok, err = pcall(function()
+    local Traceback = debug and debug.traceback
+    local ok, err = xpcall(function()
         local source = game:HttpGet(ToolUrl)
         assert(type(source) == "string" and #source > 0, "RotateTool source is empty")
 
@@ -91,11 +92,17 @@ local function startRotate()
 
         chunk()
         assert(type(Env.RotateToolCleanup) == "function", "RotateTool did not register RotateToolCleanup")
+    end, function(errorMessage)
+        local message = tostring(errorMessage)
+        if type(Traceback) == "function" then
+            return Traceback(message, 2)
+        end
+        return message
     end)
 
     if not ok then
         stopRotate()
-        warn("[RotateLibraryTest] Rotate failed to start:", err)
+        warn("[RotateLibraryTest] FULL ROTATE START TRACEBACK:\\n" .. tostring(err))
         return false
     end
 
