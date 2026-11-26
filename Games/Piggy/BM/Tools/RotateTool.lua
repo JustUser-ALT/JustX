@@ -3,7 +3,7 @@
 -- Native Build Mode Toolbar Integration
 -- Piggy Build Mode rotation tool
 --==================================================
-local ROTATE_TOOL_BUILD = "double-commit-test-20261126"
+local ROTATE_TOOL_BUILD = "final-touch-sample-20261126"
 
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
@@ -566,26 +566,11 @@ local function FinishDrag()
         local commitMove = functionsFolder and functionsFolder:FindFirstChild("CommitMove")
 
         if commitMove then
-            local committedModel = CurrentModel
             local ok, err = pcall(function()
-                commitMove:InvokeServer(committedModel, committedModel:GetPivot())
+                commitMove:InvokeServer(CurrentModel, CurrentModel:GetPivot())
             end)
             if not ok then
-                warn("[RotateTool] First CommitMove failed: " .. tostring(err))
-            else
-                task.delay(0.5, function()
-                    if not committedModel or not committedModel.Parent then
-                        return
-                    end
-
-                    local secondOk, secondError = pcall(function()
-                        commitMove:InvokeServer(committedModel, committedModel:GetPivot())
-                    end)
-
-                    if not secondOk then
-                        warn("[RotateTool] Second CommitMove failed: " .. tostring(secondError))
-                    end
-                end)
+                warn("[RotateTool] CommitMove failed: " .. tostring(err))
             end
         else
             warn("[RotateTool] RS.Functions.CommitMove not found")
@@ -705,6 +690,10 @@ local function CaptureRotateTouch(_, inputState, inputObject)
 end
 
 local function EndHandleDrag()
+    if IsDragging and CurrentPointer then
+        ApplyDrag(GetPointerPosition())
+    end
+
     if DragConnection then
         DragConnection:Disconnect()
         DragConnection = nil
