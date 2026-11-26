@@ -3,6 +3,7 @@
 -- Native Build Mode Toolbar Integration
 -- Piggy Build Mode rotation tool
 --==================================================
+local ROTATE_TOOL_BUILD = "8c93ae944cbe33b5fa6f3a6d52d18adbb964bf1d"
 
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
