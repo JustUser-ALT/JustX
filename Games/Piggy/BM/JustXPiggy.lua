@@ -41,7 +41,6 @@ local ToolConfig = {
     Move = {File = "MoveTool.lua", Cleanup = "MoveToolCleanup"},
     Resize = {File = "ResizeTool.lua", Cleanup = "ResizeToolCleanup"},
     Rotate = {File = "RotateTool.lua", Cleanup = "RotateToolCleanup"},
-    Copy = {File = "CopyTool.lua", Cleanup = "CopyTestCleanup"},
     Clone = {File = "CloneTool.lua", Cleanup = "CloneToolCleanup"}
 }
 local ToolToggles = {}
