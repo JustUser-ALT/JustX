@@ -1,745 +1,384 @@
---==================================================
--- MULTI SELECT
--- Production multi-selection with native group Move handles.
--- Uses the native MoveHandles to drag the active block,
--- then mirrors the same world-space delta to the other
--- selected blocks and commits them individually.
---==================================================
-
-local Players = game:GetService("Players")
-local RS = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
-
-local Player = Players.LocalPlayer
-local PlayerGui = Player:WaitForChild("PlayerGui")
-local BuildModeGui = PlayerGui:WaitForChild("BuildModeGui")
-local BuildModel = workspace:WaitForChild("BuildModel")
-
-local BuildModeFolder = RS:WaitForChild("BuildMode")
-local BuildingMode = require(BuildModeFolder:WaitForChild("BuildingMode"))
-local Enumeration = require(BuildModeFolder:WaitForChild("Common"):WaitForChild("Enumeration"))
-local MoveModeValue = Enumeration.BuildingMode.Move
-local MoveMode = require(BuildModeFolder:WaitForChild("Modes"):WaitForChild("Move"))
-local ChangedEvent = BuildModeFolder:WaitForChild("Events"):WaitForChild("BuildingModeChanged")
-local PlacementLogic = require(BuildModeFolder:WaitForChild("PlacementLogic"))
-local BoxSelectionAdornment = require(
-    RS:WaitForChild("Packages")
-        :WaitForChild("CustomAdornments")
-        :WaitForChild("BoxSelectionAdornment")
-)
-
-local Env = (getgenv and getgenv()) or _G
-
-if type(Env.MultiSelectCleanup) == "function" then
-    pcall(Env.MultiSelectCleanup)
-end
-if type(Env.MultiSelectTestCleanup) == "function" then
-    pcall(Env.MultiSelectTestCleanup)
-end
-
+-- Shared MultiSelect controller for Piggy Build Mode: Move / Resize / Rotate.
+local Env=(getgenv and getgenv()) or _G
+if type(Env.JustXPiggyMultiSelectRegister)=="function" then return Env.JustXPiggyMultiSelectRegister end
+local Players=game:GetService("Players")
+local RS=game:GetService("ReplicatedStorage")
+local RunService=game:GetService("RunService")
+local UIS=game:GetService("UserInputService")
+local Player=Players.LocalPlayer
+local PlayerGui=Player:WaitForChild("PlayerGui")
+local BuildGui=PlayerGui:WaitForChild("BuildModeGui")
+local BuildModel=workspace:WaitForChild("BuildModel")
+local BF=RS:WaitForChild("BuildMode")
+local BuildingMode=require(BF:WaitForChild("BuildingMode"))
+local Changed=BF:WaitForChild("Events"):WaitForChild("BuildingModeChanged")
+local Placement=require(BF:WaitForChild("PlacementLogic")).new()
+local Box=require(RS.Packages.CustomAdornments.BoxSelectionAdornment)
+local MoveMode=require(BF.Modes.Move)
+local ResizeMode=require(BF.Modes.Resize)
 local ClientState
-assert(type(getgc) == "function", "[MultiSelect] getgc unavailable")
-
-for attempt = 1, 100 do
-    for _, object in ipairs(getgc(true)) do
-        if type(object) == "table"
-            and rawget(object, "ScreenGui") == BuildModeGui
-            and rawget(object, "Toolbar") then
-            ClientState = object
-            break
-        end
-    end
-    if ClientState then break end
-    task.wait(0.1)
+for n=1,100 do
+ for _,v in ipairs(getgc(true)) do
+  if type(v)=="table" and rawget(v,"ScreenGui")==BuildGui and rawget(v,"Toolbar") and type(rawget(v,"PlaceBlockAction"))=="function" then ClientState=v break end
+ end
+ if ClientState then break end
+ task.wait(.1)
 end
-
-assert(ClientState, "[MultiSelect] BuildModeClient not found")
-assert(type(ClientState.PlaceBlockAction) == "function", "[MultiSelect] PlaceBlockAction unavailable")
-assert(ClientState.MoveHandles, "[MultiSelect] MoveHandles unavailable")
-
-local OriginalPlaceBlockAction = ClientState.PlaceBlockAction
-local MoveHandles = ClientState.MoveHandles
-local Placement = PlacementLogic.new()
-local AdornmentParent = BuildModeGui:WaitForChild("Frame"):WaitForChild("Adornment")
-local OriginalMoveAdornee = MoveHandles._Adornee
-
--- A local-only PVInstance used exclusively to position the native handles.
--- Its orientation follows the active driver; its bounds cover the whole group.
-local ProxyModel = Instance.new("Model")
-ProxyModel.Name = "JustXMultiMoveBounds"
-local ProxyPart = Instance.new("Part")
-ProxyPart.Name = "GroupBounds"
-ProxyPart.Anchored = true
-ProxyPart.Transparency = 1
-ProxyPart.Size = Vector3.new(1, 1, 1)
-ProxyPart.CanCollide = false
-ProxyPart.CanTouch = false
-ProxyPart.CanQuery = false
-ProxyPart.CastShadow = false
-ProxyPart.Locked = true
-ProxyPart.Parent = ProxyModel
-ProxyModel.PrimaryPart = ProxyPart
-ProxyModel.Parent = workspace
-
--- PlayerGui is the reliable parent in this executor context.
--- MultiSelect is contextual UI, not a native toolbar slot.
-local GuiParent = PlayerGui
-
-local Gui = Instance.new("ScreenGui")
-Gui.Name = "JustXPiggyMultiSelect"
-Gui.ResetOnSpawn = false
-Gui.IgnoreGuiInset = true
-Gui.DisplayOrder = 10001
-Gui.Enabled = false
-
-local Toggle = Instance.new("ImageButton")
-Toggle.Name = "MultiSelectButton"
-Toggle.Size = UDim2.fromOffset(56.316, 56.316)
-Toggle.Position = UDim2.new(0, 72, 1, 0)
-Toggle.AnchorPoint = Vector2.new(0, 1)
-Toggle.BackgroundColor3 = Color3.fromRGB(255, 142, 142)
-Toggle.BackgroundTransparency = 0
-Toggle.BorderSizePixel = 0
-Toggle.Image = ""
-Toggle.AutoButtonColor = true
-Toggle.Active = true
-Toggle.Selectable = true
-Toggle.ZIndex = 1
-Toggle.Parent = Gui
-
-local ToggleCorner = Instance.new("UICorner")
-ToggleCorner.CornerRadius = UDim.new(0, 10)
-ToggleCorner.Parent = Toggle
-
-local ToggleAspect = Instance.new("UIAspectRatioConstraint")
-ToggleAspect.AspectRatio = 1
-ToggleAspect.DominantAxis = Enum.DominantAxis.Width
-ToggleAspect.Parent = Toggle
-
-local ToggleShadow = Instance.new("ImageLabel")
-ToggleShadow.Name = "DropShadow"
-ToggleShadow.Size = UDim2.new(1, 10, 1, 10)
-ToggleShadow.Position = UDim2.new(0.5, 1, 0.5, 1)
-ToggleShadow.AnchorPoint = Vector2.new(0.5, 0.5)
-ToggleShadow.BackgroundTransparency = 1
-ToggleShadow.Image = "rbxassetid://6865151684"
-ToggleShadow.ImageColor3 = Color3.new(0, 0, 0)
-ToggleShadow.ImageTransparency = 0.2
-ToggleShadow.ScaleType = Enum.ScaleType.Slice
-ToggleShadow.ZIndex = 0
-ToggleShadow.Parent = Toggle
-
-local ToggleStroke = Instance.new("UIStroke")
-ToggleStroke.Name = "TutStroke"
-ToggleStroke.Color = Color3.fromRGB(101, 255, 98)
-ToggleStroke.Thickness = 1
-ToggleStroke.Transparency = 0
-ToggleStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-ToggleStroke.Enabled = false
-ToggleStroke.Parent = Toggle
-
-local ToggleLabel = Instance.new("TextLabel")
-ToggleLabel.Name = "TextLabel"
-ToggleLabel.Size = UDim2.fromScale(1, 1)
-ToggleLabel.BackgroundTransparency = 1
-ToggleLabel.Text = "MULTI"
-ToggleLabel.TextColor3 = Color3.new(0, 0, 0)
-ToggleLabel.TextSize = 14
-ToggleLabel.TextScaled = true
-ToggleLabel.Font = Enum.Font.GothamBold
-ToggleLabel.TextXAlignment = Enum.TextXAlignment.Center
-ToggleLabel.TextYAlignment = Enum.TextYAlignment.Center
-ToggleLabel.ZIndex = 2
-ToggleLabel.Parent = Toggle
-
-Gui.Parent = GuiParent
-
-local Selection = {}
-local Outlines = {}
-local Connections = {}
-local MultiEnabled = false
-local GroupArmed = false
-local Cleaned = false
-local DragSession = nil
-local CommitBusy = false
-
-local OriginalMoveUpdate = MoveMode.Update
-local OriginalRawSetAdornee = rawget(MoveHandles, "SetAdornee")
-local RealSetAdornee = MoveHandles.SetAdornee
-
-local IsMoveMode
-local IsValidBlock
-
-local function GetMultiHandlesAdornee()
-    if Cleaned or not MultiEnabled or not IsMoveMode() then
-        return nil
-    end
-
-    if GroupArmed then
-        -- Group handles are visualized from the current selection, not
-        -- ClientState.SelectedBlock. That state stays free during selection
-        -- and is assigned only when the user starts dragging the handles.
-        local driver = Selection[#Selection]
-        if IsValidBlock(driver) and ProxyModel.Parent == workspace then
-            return ProxyModel
-        end
-        return nil
-    end
-
-    -- A lone selected block must not occupy ClientState.SelectedBlock:
-    -- that state is consumed by BuildMode's main action and prevents
-    -- the next block from being selected. Keep only the visual handle.
-    if #Selection == 1 and IsValidBlock(Selection[1]) then
-        return Selection[1]
-    end
-
-    return nil
+assert(ClientState,"[MultiSelect] BuildModeClient missing")
+local MH,RH=ClientState.MoveHandles,ClientState.ResizeHandles
+assert(MH and RH,"[MultiSelect] Native handles missing")
+local MoveUpdate,ResizeUpdate=MoveMode.Update,ResizeMode.Update
+local MoveSet,ResizeSet=MH.SetAdornee,RH.SetAdornee
+local MoveRaw,ResizeRaw=rawget(MH,"SetAdornee"),rawget(RH,"SetAdornee")
+local OriginalMoveAdornee,OriginalResizeAdornee=MH._Adornee,RH._Adornee
+local Selection,Outlines,Connections,Registered={},{},{},{}
+local Enabled,Cleaned,Busy=false,false,false
+local MoveSession,ResizeActive,ResizeDriver=nil,false,nil
+local RotateMode,RotateOriginalUpdate,PreviousPivot=nil,nil,nil
+local OriginalAction,WrappedAction
+local Toggle
+local function Mode(mode)
+ mode=mode or BuildingMode:Get()
+ if type(mode)=="table" and mode.Name then return mode.Name end
+ return tostring(mode):match("([^%.]+)$") or tostring(mode)
 end
-
-local function WrappedMoveUpdate(self, ...)
-    local target = GetMultiHandlesAdornee()
-    if not target then
-        return OriginalMoveUpdate(self, ...)
-    end
-
-    -- Let native Move.Update refresh its internal state while preventing
-    -- it from replacing the selection's handle target.
-    rawset(MoveHandles, "SetAdornee", function() end)
-
-    local results = table.pack(pcall(OriginalMoveUpdate, self, ...))
-
-    if OriginalRawSetAdornee ~= nil then
-        rawset(MoveHandles, "SetAdornee", OriginalRawSetAdornee)
-    else
-        rawset(MoveHandles, "SetAdornee", nil)
-    end
-
-    if not results[1] then
-        warn("[MultiSelect] Native Move.Update failed:", results[2])
-        error(results[2], 0)
-    end
-
-    target = GetMultiHandlesAdornee()
-    if target then
-        local ok, err = pcall(RealSetAdornee, MoveHandles, target)
-        if not ok then
-            warn("[MultiSelect] Handle positioning failed:", err)
-        end
-    end
-
-    return table.unpack(results, 2, results.n)
+local function Is(name) return Mode()==name end
+local function Valid(b) return typeof(b)=="Instance" and b:IsA("Model") and b.Parent==BuildModel and b.PrimaryPart~=nil end
+local function Index(b) for i,v in ipairs(Selection) do if v==b then return i end end end
+local function Driver() local b=Selection[#Selection] if Valid(b) then return b end end
+local function Hover()
+ local ok,r=pcall(function() return Placement:Raycast() end)
+ if ok and r and r.Instance and Valid(r.Instance.Parent) then return r.Instance.Parent end
 end
-
-MoveMode.Update = WrappedMoveUpdate
-
-local function ModeName()
-    local mode = BuildingMode:Get()
-    if mode == nil then return "" end
-    local ok, name = pcall(function() return mode.Name end)
-    if ok and type(name) == "string" then return name end
-    return tostring(mode):match("([^%.]+)$") or tostring(mode)
+local function ButtonColor()
+ if Toggle then Toggle.BackgroundColor3=Enabled and Color3.fromRGB(97,255,115) or Color3.fromRGB(255,142,142) end
 end
-
-IsMoveMode = function(mode)
-    mode = mode or BuildingMode:Get()
-    local modeName = tostring(mode):match("([^%.]+)$")
-    return mode == MoveModeValue or modeName == "Move" or mode == "Move"
+local Gui=Instance.new("ScreenGui")
+Gui.Name="JustXPiggyMultiSelect" Gui.ResetOnSpawn=false Gui.IgnoreGuiInset=true Gui.DisplayOrder=10001 Gui.Enabled=false
+Toggle=Instance.new("ImageButton")
+Toggle.Name="MultiSelectButton" Toggle.Size=UDim2.fromOffset(56.316,56.316)
+Toggle.Position=UDim2.new(0,72,1,0) Toggle.AnchorPoint=Vector2.new(0,1)
+Toggle.BackgroundColor3=Color3.fromRGB(255,142,142) Toggle.BorderSizePixel=0 Toggle.Image=""
+Toggle.AutoButtonColor=true Toggle.Active=true Toggle.Selectable=true Toggle.ZIndex=1 Toggle.Parent=Gui
+local corner=Instance.new("UICorner") corner.CornerRadius=UDim.new(0,10) corner.Parent=Toggle
+local aspect=Instance.new("UIAspectRatioConstraint") aspect.AspectRatio=1 aspect.DominantAxis=Enum.DominantAxis.Width aspect.Parent=Toggle
+local shadow=Instance.new("ImageLabel") shadow.Name="DropShadow" shadow.Size=UDim2.new(1,10,1,10)
+shadow.Position=UDim2.new(.5,1,.5,1) shadow.AnchorPoint=Vector2.new(.5,.5) shadow.BackgroundTransparency=1
+shadow.Image="rbxassetid://6865151684" shadow.ImageColor3=Color3.new(0,0,0) shadow.ImageTransparency=.2
+shadow.ScaleType=Enum.ScaleType.Slice shadow.ZIndex=0 shadow.Parent=Toggle
+local stroke=Instance.new("UIStroke") stroke.Name="TutStroke" stroke.Color=Color3.fromRGB(101,255,98)
+stroke.Thickness=1 stroke.ApplyStrokeMode=Enum.ApplyStrokeMode.Border stroke.Enabled=false stroke.Parent=Toggle
+local label=Instance.new("TextLabel") label.Name="TextLabel" label.Size=UDim2.fromScale(1,1)
+label.BackgroundTransparency=1 label.Text="MULTI" label.TextColor3=Color3.new(0,0,0)
+label.TextSize=14 label.TextScaled=true label.Font=Enum.Font.GothamBold label.ZIndex=2 label.Parent=Toggle
+Gui.Parent=PlayerGui
+local function OutlineColor()
+ if Is("Resize") then return Color3.fromRGB(255,127,0) end
+ if Is("Rotate") then return Color3.fromRGB(170,85,255) end
+ return Color3.fromRGB(0,0,255)
 end
-
-IsValidBlock = function(block)
-    return typeof(block) == "Instance"
-        and block:IsA("Model")
-        and block.Parent == BuildModel
-        and block.PrimaryPart ~= nil
+local function AddOutline(b)
+ if not Valid(b) or Outlines[b] then return end
+ local o
+ local ok,err=pcall(function() o=Box.new() o:SetParent(BuildGui.Frame.Adornment) o:SetColor(OutlineColor()) o:SetThickness(.1) o:SetAdornee(b) end)
+ if ok then Outlines[b]=o elseif o then pcall(function() o:Destroy() end) warn("[MultiSelect] Outline:",err) end
 end
-
-local function FindIndex(block)
-    for index, selected in ipairs(Selection) do
-        if selected == block then return index end
-    end
+local function RemoveOutline(b)
+ local o=Outlines[b] Outlines[b]=nil
+ if o then pcall(function() o:SetAdornee(nil) o:Destroy() end) end
 end
-
-local function UpdateControls()
-    -- Keep the short label inside the original Clone-sized button.
-    -- The background color already communicates the enabled state.
-    ToggleLabel.Text = "MULTI"
-    Toggle.BackgroundColor3 = MultiEnabled
-        and Color3.fromRGB(97, 255, 115)
-        or Color3.fromRGB(255, 142, 142)
+local function RefreshOutlines()
+ for i=#Selection,1,-1 do
+  local b=Selection[i]
+  if not Valid(b) then table.remove(Selection,i) RemoveOutline(b)
+  else
+   if not Outlines[b] then AddOutline(b) end
+   local o=Outlines[b] if o then pcall(function() o:SetAdornee(nil) o:SetAdornee(b) end) end
+  end
+ end
 end
-
-local function CreateOutline(block)
-    if not IsValidBlock(block) then return false end
-
-    local existing = Outlines[block]
-    if existing then
-        local ok, parent = pcall(function()
-            return existing.Parent
-        end)
-        if ok and parent then
-            return true
-        end
-        Outlines[block] = nil
-    end
-
-    local outline
-    local ok, err = pcall(function()
-        outline = BoxSelectionAdornment.new()
-        assert(outline, "BoxSelectionAdornment.new() returned nil")
-        outline:SetParent(AdornmentParent)
-        outline:SetColor(Color3.fromRGB(0, 0, 255))
-        outline:SetThickness(0.1)
-        outline:SetAdornee(block)
-    end)
-
-    if not ok then
-        if outline then
-            pcall(function()
-                outline:SetAdornee(nil)
-                outline:Destroy()
-            end)
-        end
-        warn("[MultiSelect] Outline creation failed for", block:GetFullName(), err)
-        return false
-    end
-
-    Outlines[block] = outline
-    return true
+local function Proxy(name)
+ local m=Instance.new("Model") m.Name=name
+ local p=Instance.new("Part") p.Name="GroupBounds" p.Anchored=true p.Transparency=1 p.Size=Vector3.one
+ p.CanCollide=false p.CanTouch=false p.CanQuery=false p.CastShadow=false p.Locked=true p.Parent=m
+ m.PrimaryPart=p m.Parent=workspace return m,p
 end
-
-local function RemoveOutline(block)
-    local outline = Outlines[block]
-    if not outline then return end
-    Outlines[block] = nil
-    pcall(function()
-        outline:SetAdornee(nil)
-        outline:Destroy()
-    end)
+local MP,MPP=Proxy("JustXMultiMoveBounds")
+local RP,RPP=Proxy("JustXMultiResizeBounds")
+local function Bounds(driver)
+ if not Valid(driver) then return end
+ local pivot=driver:GetPivot()
+ local mn=Vector3.new(math.huge,math.huge,math.huge)
+ local mx=Vector3.new(-math.huge,-math.huge,-math.huge)
+ local found=false
+ for _,b in ipairs(Selection) do
+  if Valid(b) then
+   local cf,size=b:GetBoundingBox() local h=size*.5
+   for x=-1,1,2 do for y=-1,1,2 do for z=-1,1,2 do
+    local q=pivot:PointToObjectSpace(cf:PointToWorldSpace(Vector3.new(h.X*x,h.Y*y,h.Z*z)))
+    mn=Vector3.new(math.min(mn.X,q.X),math.min(mn.Y,q.Y),math.min(mn.Z,q.Z))
+    mx=Vector3.new(math.max(mx.X,q.X),math.max(mx.Y,q.Y),math.max(mx.Z,q.Z)) found=true
+   end end end
+  end
+ end
+ if not found then return end
+ local center=(mn+mx)*.5 local size=mx-mn
+ return CFrame.new(pivot:PointToWorldSpace(center))*pivot.Rotation,size
 end
-
-local function SetDriver()
-    -- Do not occupy BuildMode's SelectedBlock while selecting.
-    -- BeginGroupDrag assigns the driver only for the duration of a drag.
-    ClientState.SelectedBlock = nil
+local function UpdateProxy(m,p)
+ local cf,size=Bounds(Driver()) if not cf then return false end
+ p.Size=Vector3.new(math.max(size.X,.1),math.max(size.Y,.1),math.max(size.Z,.1)) m:PivotTo(cf) return true
 end
-
-local function UpdateProxyBounds()
-    local driver = Selection[#Selection]
-    if not IsValidBlock(driver) then return false end
-
-    local driverPivot = driver:GetPivot()
-    local minimum = Vector3.new(math.huge, math.huge, math.huge)
-    local maximum = Vector3.new(-math.huge, -math.huge, -math.huge)
-    local found = false
-
-    for _, block in ipairs(Selection) do
-        if IsValidBlock(block) then
-            local boxCFrame, boxSize = block:GetBoundingBox()
-            local half = boxSize * 0.5
-
-            for xSign = -1, 1, 2 do
-                for ySign = -1, 1, 2 do
-                    for zSign = -1, 1, 2 do
-                        local corner = boxCFrame:PointToWorldSpace(Vector3.new(
-                            half.X * xSign,
-                            half.Y * ySign,
-                            half.Z * zSign
-                        ))
-                        local localCorner = driverPivot:PointToObjectSpace(corner)
-                        minimum = Vector3.new(
-                            math.min(minimum.X, localCorner.X),
-                            math.min(minimum.Y, localCorner.Y),
-                            math.min(minimum.Z, localCorner.Z)
-                        )
-                        maximum = Vector3.new(
-                            math.max(maximum.X, localCorner.X),
-                            math.max(maximum.Y, localCorner.Y),
-                            math.max(maximum.Z, localCorner.Z)
-                        )
-                        found = true
-                    end
-                end
-            end
-        end
-    end
-
-    if not found then return false end
-
-    local localCenter = (minimum + maximum) * 0.5
-    local boundsSize = maximum - minimum
-    local worldCenter = driverPivot:PointToWorldSpace(localCenter)
-
-    ProxyPart.Size = Vector3.new(
-        math.max(boundsSize.X, 0.1),
-        math.max(boundsSize.Y, 0.1),
-        math.max(boundsSize.Z, 0.1)
-    )
-    ProxyModel:PivotTo(CFrame.new(worldCenter) * driverPivot.Rotation)
-    return true
+local function Handles()
+ ClientState.SelectedBlock=nil
+ if Is("Move") then
+  if #Selection>1 and UpdateProxy(MP,MPP) then pcall(MoveSet,MH,MP)
+  elseif #Selection==1 then pcall(MoveSet,MH,Selection[1]) else pcall(MoveSet,MH,nil) end
+ elseif Is("Resize") then
+  if #Selection>1 and UpdateProxy(RP,RPP) then pcall(ResizeSet,RH,RP)
+  elseif #Selection==1 then pcall(ResizeSet,RH,Selection[1]) else pcall(ResizeSet,RH,nil) end
+ elseif Is("Rotate") then
+  Env.RotateToolPivotOverride= function(model)
+   if not Enabled or not Is("Rotate") or #Selection<2 or model~=Driver() then return end
+   return Bounds(model)
+  end
+  if RotateMode and RotateMode.Active then ClientState.SelectedBlock=Driver() end
+ end
 end
-
-local function SetMoveHandlesAdornee(adornee)
-    local ok, err = pcall(function()
-        MoveHandles:SetAdornee(adornee)
-    end)
-    if not ok then
-        warn("[MultiSelect] SetAdornee failed:", err)
-    end
-    return ok
+local function CommitMove()
+ local s=MoveSession MoveSession=nil if not s then return end
+ local remote=RS:FindFirstChild("Functions") and RS.Functions:FindFirstChild("CommitMove")
+ if not remote or Busy then return end
+ Busy=true task.spawn(function()
+  for b in pairs(s.starts) do if b~=s.driver and Valid(b) then pcall(function() remote:InvokeServer(b,b:GetPivot()) end) end end
+  Busy=false
+ end)
 end
-
-local function ArmGroup()
-    if #Selection < 2 then return false end
-
-    SetDriver()
-    if not UpdateProxyBounds() then
-        GroupArmed = false
-        ClientState.SelectedBlock = nil
-        warn("[MultiSelect] Could not calculate group bounds")
-        return false
-    end
-
-    GroupArmed = true
-    local ok = SetMoveHandlesAdornee(ProxyModel)
-    if not ok then
-        GroupArmed = false
-        ClientState.SelectedBlock = nil
-        return false
-    end
-
-    return true
+local function CommitResize()
+ if not ResizeActive then return end
+ ResizeActive=false local driver=ResizeDriver ResizeDriver=nil
+ if Busy then return end Busy=true
+ task.spawn(function()
+  local remote=RS:FindFirstChild("Functions") and RS.Functions:FindFirstChild("CommitResize")
+  if remote then for _,b in ipairs(Selection) do if b~=driver and Valid(b) then
+   local parts={} for _,v in ipairs(b:GetDescendants()) do if v:IsA("BasePart") and v.Name~="MouseFilterPart" then table.insert(parts,v) end end
+   if #parts==1 then local p=parts[1] pcall(function() remote:InvokeServer(b,{p,p.CFrame,p.Size}) end)
+   else warn("[MultiSelect] Resize commit skipped: additional blocks need exactly one real BasePart") end
+  end end end
+  task.wait() RefreshOutlines() Busy=false
+ end)
 end
-
-local function ClearSelection()
-    -- Snapshot keys first: RemoveOutline mutates Outlines while iterating.
-    local outlinedBlocks = {}
-    for block in pairs(Outlines) do
-        table.insert(outlinedBlocks, block)
-    end
-
-    for _, block in ipairs(outlinedBlocks) do
-        RemoveOutline(block)
-    end
-
-    table.clear(Selection)
-    UpdateControls()
+local function CommitRotate()
+ local driver=Driver() local remote=RS:FindFirstChild("Functions") and RS.Functions:FindFirstChild("CommitMove")
+ if not driver or not remote or Busy then return end
+ local list={} for _,b in ipairs(Selection) do if b~=driver and Valid(b) then table.insert(list,b) end end
+ if #list==0 then return end
+ Busy=true task.spawn(function() for _,b in ipairs(list) do pcall(function() remote:InvokeServer(b,b:GetPivot()) end) end Busy=false end)
 end
-
-local function ResetMultiSelect(reason)
-    -- Full reset removes the group and exits selection mode.
-    GroupArmed = false
-    DragSession = nil
-    MultiEnabled = false
-
-    SetMoveHandlesAdornee(nil)
-    ClientState.SelectedBlock = nil
-    ClearSelection()
-
-    -- Keep the invisible proxy in a harmless neutral state for a later run.
-    ProxyPart.Size = Vector3.new(1, 1, 1)
-    ProxyModel:PivotTo(CFrame.new(0, -10000, 0))
-
-    UpdateControls()
+local function CommitCurrent()
+ if Is("Move") then
+  local s=MoveSession
+  if s and Valid(s.driver) then local delta=s.driver:GetPivot()*s.driverStart:Inverse() for b,start in pairs(s.starts) do if b~=s.driver and Valid(b) then pcall(function() b:PivotTo(delta*start) end) end end end
+  CommitMove()
+ elseif Is("Resize") then CommitResize()
+ elseif Is("Rotate") then CommitRotate() end
 end
-
-local function ToggleBlock(block)
-    if not IsValidBlock(block) then return end
-
-    local index = FindIndex(block)
-    if index then
-        table.remove(Selection, index)
-        RemoveOutline(block)
-    else
-        table.insert(Selection, block)
-        local outlined = CreateOutline(block)
-    end
-
-    -- One selected block uses the native single-block Move handles.
-    -- Two or more blocks automatically switch to the group proxy handles.
-    if #Selection >= 2 then
-        local armed = ArmGroup()
-        if not armed then
-            GroupArmed = false
-            DragSession = nil
-            SetMoveHandlesAdornee(nil)
-            ClientState.SelectedBlock = nil
-        end
-    elseif #Selection == 1 then
-        GroupArmed = false
-        DragSession = nil
-        -- Do not set ClientState.SelectedBlock here. The main BuildMode
-        -- action must remain free to add the next block to the selection.
-        ClientState.SelectedBlock = nil
-        SetMoveHandlesAdornee(Selection[1])
-    else
-        GroupArmed = false
-        DragSession = nil
-        SetMoveHandlesAdornee(nil)
-        ClientState.SelectedBlock = nil
-    end
-    UpdateControls()
+local function Clear()
+ local keys={} for b in pairs(Outlines) do table.insert(keys,b) end for _,b in ipairs(keys) do RemoveOutline(b) end
+ table.clear(Selection) ClientState.SelectedBlock=nil pcall(MoveSet,MH,nil) pcall(ResizeSet,RH,nil)
+ MoveSession=nil ResizeActive=false ResizeDriver=nil table.clear(ResizeObjects)
+ MPP.Size=Vector3.one RPP.Size=Vector3.one MP:PivotTo(CFrame.new(0,-10000,0)) RP:PivotTo(CFrame.new(0,-10000,0))
+ if RotateMode and RotateMode.Outline then pcall(function() RotateMode.Outline:SetAdornee(nil) end) end
+ Env.RotateToolPivotOverride=PreviousPivot
+ ButtonColor()
 end
-
-local function GetHoveredBlock()
-    local ok, result = pcall(function()
-        return Placement:Raycast()
-    end)
-    if not ok or not result or not result.Instance then return nil end
-
-    local candidate = result.Instance.Parent
-    if IsValidBlock(candidate) then return candidate end
-    return nil
+local function Reset()
+ CommitCurrent() Enabled=false Clear() ButtonColor()
 end
-
-local function MultiMovePlaceBlockAction(self, ...)
-    if Cleaned or not MultiEnabled or not IsMoveMode() then
-        return OriginalPlaceBlockAction(self, ...)
-    end
-
-    -- The main BuildMode action always edits the selection, even while
-    -- group handles are visible. ToggleBlock will re-arm the correct handles
-    -- after adding or removing the block.
-    -- A previous group driver must never block the next selection click.
-    ClientState.SelectedBlock = nil
-    local block = GetHoveredBlock()
-    if block then
-        ToggleBlock(block)
-    else
-    end
-    return Enum.ContextActionResult.Sink
+local function SelectBlock(b)
+ local i=Index(b)
+ if i then table.remove(Selection,i) RemoveOutline(b) else table.insert(Selection,b) AddOutline(b) end
+ Handles() ButtonColor()
 end
-
-local function ApplyGroupDelta()
-    local session = DragSession
-    if not session or not IsValidBlock(session.driver) then return end
-
-    local ok, currentPivot = pcall(function()
-        return session.driver:GetPivot()
-    end)
-    if not ok then return end
-
-    local delta = currentPivot * session.driverStart:Inverse()
-    for block, startPivot in pairs(session.starts) do
-        if block ~= session.driver and IsValidBlock(block) then
-            pcall(function()
-                block:PivotTo(delta * startPivot)
-            end)
-        end
-    end
-
-    if GroupArmed then
-        UpdateProxyBounds()
-    end
+local function Action(self,...)
+ if Cleaned or not Enabled then return OriginalAction(self,...) end
+ local mode=Mode()
+ if mode~="Move" and mode~="Resize" and mode~="Rotate" then return OriginalAction(self,...) end
+ ClientState.SelectedBlock=nil
+ local b=Hover()
+ if b then SelectBlock(b) else Reset() end
+ return Enum.ContextActionResult.Sink
 end
-
-local function FindCommitMove()
-    local functionsFolder = RS:FindFirstChild("Functions")
-    if not functionsFolder then
-        return nil
-    end
-
-    local remote = functionsFolder:FindFirstChild("CommitMove")
-    if remote and remote:IsA("RemoteFunction") then
-        return remote
-    end
-
-    return nil
+local function InstallAction()
+ local current=ClientState.PlaceBlockAction
+ if current~=WrappedAction then OriginalAction=current WrappedAction=Action ClientState.PlaceBlockAction=WrappedAction end
 end
-
-local function CommitGroupOthers()
-    if CommitBusy then return end
-    local session = DragSession
-    DragSession = nil
-    if not session then return end
-
-    local remote = FindCommitMove()
-    if not remote then
-        warn("[MultiSelect] CommitMove RemoteFunction not found; other blocks were moved locally only")
-        return
-    end
-
-    CommitBusy = true
-    task.spawn(function()
-        for block in pairs(session.starts) do
-            if block ~= session.driver and IsValidBlock(block) then
-                local ok, err = pcall(function()
-                    remote:InvokeServer(block, block:GetPivot())
-                end)
-                if not ok then
-                    warn("[MultiSelect] CommitMove failed for", block:GetFullName(), err)
-                end
-            end
-        end
-        CommitBusy = false
-    end)
+local function MoveUpdate(self,...)
+ if not Enabled or not Is("Move") or #Selection==0 then return MoveUpdateOriginal(self,...) end
+ local target=#Selection>1 and MP or Selection[1]
+ rawset(MH,"SetAdornee",function() end)
+ local r=table.pack(pcall(MoveUpdateOriginal,self,...))
+ rawset(MH,"SetAdornee",MoveRaw)
+ if not r[1] then error(r[2],0) end
+ pcall(MoveSet,MH,target) return table.unpack(r,2,r.n)
 end
-
-local function BeginGroupDrag()
-    if not MultiEnabled or not GroupArmed or not IsMoveMode() or #Selection < 2 then
-        DragSession = nil
-        return
-    end
-
-    local driver = ClientState.SelectedBlock
-    if not IsValidBlock(driver) or not FindIndex(driver) then
-        driver = Selection[#Selection]
-        if not IsValidBlock(driver) then return end
-        ClientState.SelectedBlock = driver
-    end
-
-    local starts = {}
-    for _, block in ipairs(Selection) do
-        if IsValidBlock(block) then
-            starts[block] = block:GetPivot()
-        end
-    end
-
-    if #Selection < 2 then return end
-
-    DragSession = {
-        driver = driver,
-        driverStart = driver:GetPivot(),
-        starts = starts
-    }
+local MoveUpdateOriginal=MoveUpdate
+local function ResizeUpdate(self,...)
+ if not Enabled or not Is("Resize") or #Selection==0 then return ResizeUpdateOriginal(self,...) end
+ local target=#Selection>1 and RP or Selection[1]
+ rawset(RH,"SetAdornee",function() end)
+ local r=table.pack(pcall(ResizeUpdateOriginal,self,...))
+ rawset(RH,"SetAdornee",ResizeRaw)
+ if not r[1] then error(r[2],0) end
+ pcall(ResizeSet,RH,target) return table.unpack(r,2,r.n)
 end
-
-local function UpdateVisibility(mode)
-    local visible = IsMoveMode(mode)
-    Gui.Enabled = visible
-    Toggle.Visible = visible
+local ResizeUpdateOriginal=ResizeUpdate
+MoveMode.Update=MoveUpdate ResizeMode.Update=ResizeUpdate
+local function BeginMove()
+ if not Enabled or not Is("Move") or #Selection<2 then MoveSession=nil return end
+ local d=ClientState.SelectedBlock if not Valid(d) or not Index(d) then d=Driver() end
+ if not Valid(d) then return end
+ ClientState.SelectedBlock=d
+ local starts={} for _,b in ipairs(Selection) do if Valid(b) then starts[b]=b:GetPivot() end end
+ MoveSession={driver=d,driverStart=d:GetPivot(),starts=starts}
 end
-
-table.insert(Connections, Toggle.Activated:Connect(function()
-    if not IsMoveMode() then return end
-
-    if MultiEnabled then
-        ResetMultiSelect("Multi button")
-    else
-        MultiEnabled = true
-        GroupArmed = false
-        DragSession = nil
-        ClientState.SelectedBlock = nil
-        UpdateControls()
-    end
+local function ApplyMove()
+ local s=MoveSession if not s or not Valid(s.driver) then return end
+ local delta=s.driver:GetPivot()*s.driverStart:Inverse()
+ for b,start in pairs(s.starts) do if b~=s.driver and Valid(b) then pcall(function() b:PivotTo(delta*start) end) end end
+ UpdateProxy(MP,MPP)
+end
+local ResizeModule
+local ok,conns=pcall(getconnections,RH.MouseButton1Down)
+if ok and conns then for _,c in ipairs(conns) do
+ local fn=c.Function
+ if type(fn)=="function" then for _,v in pairs(debug.getupvalues(fn)) do
+  if type(v)=="table" and type(rawget(v,"new"))=="function" and type(rawget(v,"Drag"))=="function" and type(rawget(v,"__index"))=="table" then ResizeModule=v break end
+ end end
+ if ResizeModule then break end
+end end
+local ResizeObjects={}
+local ResizeNew,ResizeDrag,ResizeIndex
+if ResizeModule then
+ ResizeIndex=ResizeModule.__index ResizeNew=ResizeModule.new ResizeDrag=ResizeIndex.Drag
+ local function Parts(b) local t={} for _,v in ipairs(b:GetChildren()) do if v:IsA("BasePart") then table.insert(t,v) end end return t end
+ ResizeModule.new=function(parts,dir,base,params)
+  local native=ResizeNew(parts,dir,base,params) table.clear(ResizeObjects)
+  if Enabled and Is("Resize") and #Selection>1 then
+   local d=Driver()
+   if Valid(d) then local world=d.PrimaryPart.CFrame:VectorToWorldSpace(dir)
+    for _,b in ipairs(Selection) do if b~=d and Valid(b) then
+     local bp=b.PrimaryPart local localDir=bp.CFrame:VectorToObjectSpace(world)
+     local good,obj=pcall(ResizeNew,Parts(b),localDir,bp,params) if good and obj then table.insert(ResizeObjects,obj) end
+    end end
+   end
+  end
+  return native
+ end
+ ResizeIndex.Drag=function(self,delta,...)
+  local result=table.pack(ResizeDrag(self,delta,...))
+  if Enabled and Is("Resize") and #Selection>1 then for _,obj in ipairs(ResizeObjects) do pcall(ResizeDrag,obj,delta) end end
+  return table.unpack(result,1,result.n)
+ end
+end
+local function BeginResize()
+ if not Enabled or not Is("Resize") or #Selection<2 then ResizeActive=false return end
+ ResizeActive=true ResizeDriver=Driver() ClientState.SelectedBlock=ResizeDriver
+end
+local function AttachRotate()
+ local mode=Env.RotateToolMode
+ if type(mode)~="table" or mode==RotateMode then return end
+ RotateMode=mode PreviousPivot=Env.RotateToolPivotOverride
+ RotateOriginalUpdate=mode.Update
+ mode.Update=function(self,dt,state)
+  if not Enabled or not Is("Rotate") then return RotateOriginalUpdate(self,dt,state) end
+  RefreshOutlines() local d=Driver() state=state or ClientState
+  if not d then state.SelectedBlock=nil return RotateOriginalUpdate(self,dt,state) end
+  state.SelectedBlock=d
+  local r=table.pack(pcall(RotateOriginalUpdate,self,dt,state))
+  local current=d:GetPivot()
+  if not mode._MultiLastPivot then mode._MultiLastPivot=current
+  else
+   local delta=current*mode._MultiLastPivot:Inverse()
+   local changed=(current.Position-mode._MultiLastPivot.Position).Magnitude>1e-5 or current.LookVector:Dot(mode._MultiLastPivot.LookVector)<.999999
+   if changed then
+    for _,b in ipairs(Selection) do if b~=d and Valid(b) then pcall(function() b:PivotTo(delta*b:GetPivot()) end) end end
+    mode._MultiChanged=true
+   end
+   mode._MultiLastPivot=current
+  end
+  if not r[1] then error(r[2],0) end return table.unpack(r,2,r.n)
+ end
+end
+local function CommitRotateRelease()
+ if RotateMode and RotateMode._MultiChanged then RotateMode._MultiChanged=false CommitRotate() RefreshOutlines() end
+end
+table.insert(Connections,MH.MouseButton1Down:Connect(BeginMove))
+table.insert(Connections,MH.MouseDrag:Connect(function() if MoveSession then ApplyMove() end end))
+table.insert(Connections,MH.MouseButton1Up:Connect(function()
+ if MoveSession then ApplyMove() task.defer(function() task.wait() CommitMove() ClientState.SelectedBlock=nil end) end
 end))
-
-table.insert(Connections, ChangedEvent.Event:Connect(function(mode)
-    task.defer(function()
-        if not IsMoveMode(mode) then
-            ResetMultiSelect("mode changed")
-        end
-        UpdateVisibility(mode)
-    end)
+table.insert(Connections,RH.MouseButton1Down:Connect(BeginResize))
+table.insert(Connections,RH.MouseButton1Up:Connect(function()
+ if ResizeActive then task.defer(function() task.wait() CommitResize() table.clear(ResizeObjects) ClientState.SelectedBlock=nil end) end
 end))
-
-table.insert(Connections, MoveHandles.MouseButton1Down:Connect(BeginGroupDrag))
-
-table.insert(Connections, MoveHandles.MouseDrag:Connect(function()
-    if DragSession then
-        ApplyGroupDelta()
-    end
+table.insert(Connections,Toggle.Activated:Connect(function()
+ if not Registered[Mode()] then return end
+ if Enabled then Reset() else Enabled=true table.clear(Selection) ClientState.SelectedBlock=nil ButtonColor() Handles() end
 end))
-
-table.insert(Connections, MoveHandles.MouseButton1Up:Connect(function()
-    if not DragSession then return end
-    ApplyGroupDelta()
-    task.defer(function()
-        task.wait()
-        CommitGroupOthers()
-        if MultiEnabled and GroupArmed then
-            ClientState.SelectedBlock = nil
-        end
-    end)
+table.insert(Connections,Changed.Event:Connect(function(mode)
+ task.defer(function()
+  local name=Mode(mode)
+  Gui.Enabled=Registered.Move or Registered.Resize or Registered.Rotate
+  Toggle.Visible=Gui.Enabled and Registered[name]==true
+  if Enabled and name~="Move" and name~="Resize" and name~="Rotate" then Reset() end
+ end)
 end))
-
-table.insert(Connections, RunService.RenderStepped:Connect(function()
-    if Cleaned then return end
-
-    for index = #Selection, 1, -1 do
-        local block = Selection[index]
-        if not IsValidBlock(block) then
-            table.remove(Selection, index)
-            RemoveOutline(block)
-        elseif not Outlines[block] then
-            -- Selection and its visual adornment are deliberately tracked
-            -- separately. Retry any outline that failed during the click.
-            CreateOutline(block)
-        end
-    end
-
-    if MultiEnabled and IsMoveMode() then
-        if DragSession then
-            ApplyGroupDelta()
-        end
-        if GroupArmed then
-            -- Keep the main BuildMode action free to select more blocks.
-            -- The driver is assigned only in BeginGroupDrag().
-            if not DragSession and ClientState.SelectedBlock ~= nil then
-                ClientState.SelectedBlock = nil
-            end
-            UpdateProxyBounds()
-        elseif #Selection == 1 then
-            -- Keep the single-block handles visible without occupying
-            -- BuildMode's SelectedBlock state.
-            if ClientState.SelectedBlock ~= nil then
-                ClientState.SelectedBlock = nil
-            end
-            local selected = Selection[1]
-            if IsValidBlock(selected) and MoveHandles._Adornee ~= selected then
-                SetMoveHandlesAdornee(selected)
-            end
-        elseif ClientState.SelectedBlock ~= nil then
-            ClientState.SelectedBlock = nil
-        end
-    end
-    UpdateControls()
+table.insert(Connections,UIS.InputEnded:Connect(function(input)
+ if input.UserInputType==Enum.UserInputType.Touch or input.UserInputType==Enum.UserInputType.MouseButton1 or input.KeyCode==Enum.KeyCode.ButtonR2 then
+  task.defer(function() task.wait() if Is("Rotate") then CommitRotateRelease() end end)
+ end
 end))
-
-ClientState.PlaceBlockAction = MultiMovePlaceBlockAction
-UpdateVisibility()
-UpdateControls()
-
+table.insert(Connections,RunService.RenderStepped:Connect(function()
+ if Cleaned then return end
+ AttachRotate()
+ if Enabled then
+  RefreshOutlines()
+  if Is("Move") then if MoveSession then ApplyMove() end if not MoveSession then ClientState.SelectedBlock=nil end UpdateProxy(MP,MPP)
+  elseif Is("Resize") then if not ResizeActive then ClientState.SelectedBlock=nil end UpdateProxy(RP,RPP) if ResizeActive then RefreshOutlines() end
+  elseif Is("Rotate") then Env.RotateToolPivotOverride=function(model) if Enabled and Is("Rotate") and #Selection>1 and model==Driver() then return Bounds(model) end end end
+ end
+end))
 local function Cleanup()
-    if Cleaned then return end
-    Cleaned = true
-    DragSession = nil
-
-    for _, connection in ipairs(Connections) do
-        pcall(function() connection:Disconnect() end)
-    end
-    table.clear(Connections)
-
-    if ClientState.PlaceBlockAction == MultiMovePlaceBlockAction then
-        ClientState.PlaceBlockAction = OriginalPlaceBlockAction
-    end
-
-    if MoveMode.Update == WrappedMoveUpdate then
-        MoveMode.Update = OriginalMoveUpdate
-    end
-
-    if OriginalRawSetAdornee ~= nil then
-        rawset(MoveHandles, "SetAdornee", OriginalRawSetAdornee)
-    else
-        rawset(MoveHandles, "SetAdornee", nil)
-    end
-
-    ClearSelection()
-    SetMoveHandlesAdornee(
-        typeof(OriginalMoveAdornee) == "Instance"
-            and OriginalMoveAdornee:IsA("PVInstance")
-            and OriginalMoveAdornee.Parent
-            and OriginalMoveAdornee
-            or nil
-    )
-    pcall(function() ProxyModel:Destroy() end)
-    pcall(function() Gui:Destroy() end)
-
-    if Env.MultiSelectCleanup == Cleanup then
-        Env.MultiSelectCleanup = nil
-    end
+ if Cleaned then return end Cleaned=true CommitCurrent()
+ for _,c in ipairs(Connections) do pcall(function() c:Disconnect() end) end
+ if ClientState.PlaceBlockAction==WrappedAction then ClientState.PlaceBlockAction=OriginalAction end
+ if MoveMode.Update==MoveUpdate then MoveMode.Update=MoveUpdateOriginal end
+ if ResizeMode.Update==ResizeUpdate then ResizeMode.Update=ResizeUpdateOriginal end
+ if ResizeModule and ResizeNew and ResizeModule.new~=ResizeNew then ResizeModule.new=ResizeNew end
+ if ResizeIndex and ResizeDrag and ResizeIndex.Drag~=ResizeDrag then ResizeIndex.Drag=ResizeDrag end
+ if RotateMode and RotateOriginalUpdate then RotateMode.Update=RotateOriginalUpdate end
+ Env.RotateToolPivotOverride=PreviousPivot
+ local keys={} for b in pairs(Outlines) do table.insert(keys,b) end for _,b in ipairs(keys) do RemoveOutline(b) end
+ table.clear(Selection) pcall(function() Gui:Destroy() MP:Destroy() RP:Destroy() end)
+ pcall(MoveSet,MH,OriginalMoveAdornee and OriginalMoveAdornee.Parent and OriginalMoveAdornee or nil)
+ pcall(ResizeSet,RH,OriginalResizeAdornee and OriginalResizeAdornee.Parent and OriginalResizeAdornee or nil)
+ Env.JustXPiggyMultiSelectRegister=nil Env.JustXPiggyMultiSelectUnregister=nil Env.MultiSelectCleanup=nil
 end
-
-Env.MultiSelectCleanup = Cleanup
-
-print("================================")
-print("================================")
+local function Register(name)
+ if name~="Move" and name~="Resize" and name~="Rotate" then return end
+ Registered[name]=true InstallAction()
+ if name=="Rotate" then AttachRotate() end
+ Gui.Enabled=true Toggle.Visible=Registered[Mode()]==true
+ return true
+end
+local function Unregister(name)
+ Registered[name]=nil
+ if not Registered.Move and not Registered.Resize and not Registered.Rotate then Cleanup() end
+end
+Env.JustXPiggyMultiSelectRegister=Register
+Env.JustXPiggyMultiSelectUnregister=Unregister
+Env.MultiSelectCleanup=Cleanup
+InstallAction()
+ButtonColor()
+return Register
