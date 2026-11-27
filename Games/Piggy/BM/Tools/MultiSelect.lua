@@ -364,7 +364,7 @@ local function Cleanup()
  if RotateMode and RotateOriginalUpdate then RotateMode.Update=RotateOriginalUpdate end
  Env.RotateToolPivotOverride=PreviousPivot
  local keys={} for b in pairs(Outlines) do table.insert(keys,b) end for _,b in ipairs(keys) do RemoveOutline(b) end
- table.clear(Selection) pcall(function() Gui:Destroy() MP:Destroy() RP:Destroy() end)
+ table.clear(Selection) ClientState.SelectedBlock=nil pcall(MoveSet,MH,nil) pcall(ResizeSet,RH,nil) pcall(function() Gui:Destroy() MP:Destroy() RP:Destroy() end)
  pcall(MoveSet,MH,OriginalMoveAdornee and OriginalMoveAdornee.Parent and OriginalMoveAdornee or nil)
  pcall(ResizeSet,RH,OriginalResizeAdornee and OriginalResizeAdornee.Parent and OriginalResizeAdornee or nil)
  Env.JustXPiggyMultiSelectRegister=nil Env.JustXPiggyMultiSelectUnregister=nil Env.JustXPiggyMultiSelectSetBaseAction=nil Env.JustXPiggyMultiSelectGetBaseAction=nil Env.JustXPiggyMultiSelectRebindAction=nil Env.MultiSelectCleanup=nil
