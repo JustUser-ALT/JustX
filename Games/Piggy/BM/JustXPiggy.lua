@@ -1,4 +1,4 @@
-print("[JustXPiggy] Build: 2026-11-27-tools-regression-fix-1")
+print("[JustXPiggy] Build: 2026-11-27-tools-regression-fix-2")
 
 local LibraryUrl = "https://raw.githubusercontent.com/JustUser-ALT/JustXLibrary/a29bba1560fa59cce60e715e6f08588fb44cd126/JustLib.lua"
 local JL
@@ -78,15 +78,21 @@ local function startTool(Name)
     if not Config then return false end
     stopTool(Name)
 
-    local Ok, Error = pcall(function()
-        local Source = game:HttpGet(BaseUrl .. Config.File)
-        local Chunk, CompileError = loadstring(Source)
-        assert(type(Chunk) == "function", CompileError or "loadstring failed")
-        Chunk()
-    end)
+    local Ok, Error
+    for attempt = 1, 3 do
+        Ok, Error = pcall(function()
+            local Source = game:HttpGet(BaseUrl .. Config.File)
+            assert(type(Source) == "string" and Source ~= "", "Empty tool source")
+            local Chunk, CompileError = loadstring(Source)
+            assert(type(Chunk) == "function", CompileError or "loadstring failed")
+            Chunk()
+        end)
+        if Ok then break end
+        if attempt < 3 then task.wait(0.35) end
+    end
 
     if not Ok then
-        warn("[JustXPiggy] " .. Name .. " failed to start:", Error)
+        warn("[JustXPiggy] " .. Name .. " failed after 3 attempts:", Error)
         return false
     end
     print("[JustXPiggy] " .. Name .. " enabled")
