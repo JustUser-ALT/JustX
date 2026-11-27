@@ -1258,8 +1258,15 @@ local function Cleanup()
         RenderModes.Rotate = PreviousRenderMode
     end
 
+    if type(Env.JustXPiggyMultiSelectUnregister) == "function" then
+        pcall(Env.JustXPiggyMultiSelectUnregister, "Rotate")
+    end
+
     if ClientState.PlaceBlockAction == RotatePlaceBlockAction then
         ClientState.PlaceBlockAction = OriginalPlaceBlockAction
+    end
+    if type(Env.JustXPiggyMultiSelectRebindAction) == "function" then
+        pcall(Env.JustXPiggyMultiSelectRebindAction)
     end
 
     if Slots[7] and Slots[7].Instance == Button then
@@ -1306,3 +1313,18 @@ Env.RotateTestCleanup = Cleanup
 Env.RotateToolMode = RotateMode
 Env.RotateToolEnum = RotateEnum
 
+
+-- Shared multi-selection controller for Move, Resize and Rotate.
+local MultiSelectOk, MultiSelectError = pcall(function()
+    local source = game:HttpGet("https://raw.githubusercontent.com/JustUser-ALT/JustX/main/Games/Piggy/BM/Tools/MultiSelect.lua")
+    local chunk, compileError = loadstring(source)
+    assert(type(chunk) == "function", compileError or "[Rotate] MultiSelect loadstring failed")
+    local register = chunk()
+    if type(register) ~= "function" then register = Env.JustXPiggyMultiSelectRegister end
+    assert(type(register) == "function", "[Rotate] MultiSelect register function unavailable")
+    register("Rotate")
+end)
+if not MultiSelectOk then
+    Cleanup()
+    error("[Rotate] MultiSelect failed to start: " .. tostring(MultiSelectError), 0)
+end
