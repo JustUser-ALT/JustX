@@ -332,7 +332,7 @@ table.insert(Connections,Changed.Event:Connect(function(mode)
   local name=Mode(mode)
   Gui.Enabled=Registered.Move or Registered.Resize or Registered.Rotate
   Toggle.Visible=Gui.Enabled and Registered[name]==true
-  if Enabled and ActiveModeName and name~=ActiveModeName then CommitCurrent() Clear() end
+  if Enabled and ActiveModeName and name~=ActiveModeName then Enabled=false Clear() end
   ActiveModeName=name
  end)
 end))
