@@ -34,6 +34,9 @@ local OriginalMoveAdornee,OriginalResizeAdornee=MH._Adornee,RH._Adornee
 local Selection,Outlines,Connections,Registered={},{},{},{}
 local Enabled,Cleaned,Busy=false,false,false
 local MoveSession,ResizeActive,ResizeDriver=nil,false,nil
+local ResizeObjects={}
+local MoveUpdateOriginal,ResizeUpdateOriginal
+local ActiveModeName
 local RotateMode,RotateOriginalUpdate,PreviousPivot=nil,nil,nil
 local OriginalAction,WrappedAction
 local Toggle
@@ -184,6 +187,7 @@ local function CommitCurrent()
  elseif Is("Rotate") then CommitRotate() end
 end
 local function Clear()
+ if RotateMode then RotateMode._MultiLastPivot=nil RotateMode._MultiChanged=nil end
  local keys={} for b in pairs(Outlines) do table.insert(keys,b) end for _,b in ipairs(keys) do RemoveOutline(b) end
  table.clear(Selection) ClientState.SelectedBlock=nil pcall(MoveSet,MH,nil) pcall(ResizeSet,RH,nil)
  MoveSession=nil ResizeActive=false ResizeDriver=nil table.clear(ResizeObjects)
@@ -196,6 +200,7 @@ local function Reset()
  CommitCurrent() Enabled=false Clear() ButtonColor()
 end
 local function SelectBlock(b)
+ if RotateMode then RotateMode._MultiLastPivot=nil end
  local i=Index(b)
  if i then table.remove(Selection,i) RemoveOutline(b) else table.insert(Selection,b) AddOutline(b) end
  Handles() ButtonColor()
@@ -206,13 +211,14 @@ local function Action(self,...)
  if mode~="Move" and mode~="Resize" and mode~="Rotate" then return OriginalAction(self,...) end
  ClientState.SelectedBlock=nil
  local b=Hover()
- if b then SelectBlock(b) else Reset() end
+ if b then SelectBlock(b) else CommitCurrent() Clear() end
  return Enum.ContextActionResult.Sink
 end
 local function InstallAction()
  local current=ClientState.PlaceBlockAction
  if current~=WrappedAction then OriginalAction=current WrappedAction=Action ClientState.PlaceBlockAction=WrappedAction end
 end
+MoveUpdateOriginal=MoveUpdateOriginal or MoveUpdate
 local function MoveUpdate(self,...)
  if not Enabled or not Is("Move") or #Selection==0 then return MoveUpdateOriginal(self,...) end
  local target=#Selection>1 and MP or Selection[1]
@@ -222,7 +228,7 @@ local function MoveUpdate(self,...)
  if not r[1] then error(r[2],0) end
  pcall(MoveSet,MH,target) return table.unpack(r,2,r.n)
 end
-local MoveUpdateOriginal=MoveUpdate
+MoveUpdateOriginal=MoveUpdate
 local function ResizeUpdate(self,...)
  if not Enabled or not Is("Resize") or #Selection==0 then return ResizeUpdateOriginal(self,...) end
  local target=#Selection>1 and RP or Selection[1]
@@ -232,7 +238,7 @@ local function ResizeUpdate(self,...)
  if not r[1] then error(r[2],0) end
  pcall(ResizeSet,RH,target) return table.unpack(r,2,r.n)
 end
-local ResizeUpdateOriginal=ResizeUpdate
+ResizeUpdateOriginal=ResizeUpdate
 MoveMode.Update=MoveUpdate ResizeMode.Update=ResizeUpdate
 local function BeginMove()
  if not Enabled or not Is("Move") or #Selection<2 then MoveSession=nil return end
@@ -257,7 +263,6 @@ if ok and conns then for _,c in ipairs(conns) do
  end end
  if ResizeModule then break end
 end end
-local ResizeObjects={}
 local ResizeNew,ResizeDrag,ResizeIndex
 if ResizeModule then
  ResizeIndex=ResizeModule.__index ResizeNew=ResizeModule.new ResizeDrag=ResizeIndex.Drag
@@ -331,7 +336,8 @@ table.insert(Connections,Changed.Event:Connect(function(mode)
   local name=Mode(mode)
   Gui.Enabled=Registered.Move or Registered.Resize or Registered.Rotate
   Toggle.Visible=Gui.Enabled and Registered[name]==true
-  if Enabled and name~="Move" and name~="Resize" and name~="Rotate" then Reset() end
+  if Enabled and ActiveModeName and name~=ActiveModeName then CommitCurrent() Clear() end
+  ActiveModeName=name
  end)
 end))
 table.insert(Connections,UIS.InputEnded:Connect(function(input)
