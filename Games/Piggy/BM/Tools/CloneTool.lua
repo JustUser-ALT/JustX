@@ -207,7 +207,7 @@ local function CreateCopy(source)
         return nil
     end
 
-    local sourcePivot = sourceRef.CFrame
+    local sourcePivot = source:GetPivot()
     local moveOk, moveError = pcall(function()
         CommitMove:InvokeServer(copy, sourcePivot)
     end)
@@ -216,42 +216,41 @@ local function CreateCopy(source)
         return nil
     end
 
-    local defaultSize = Vector3.new(4.5, 4.5, 4.5)
-    local sourceBase = source:FindFirstChild("Base")
-    local sourceColorPart = source:FindFirstChild("ColorPart")
-    local copyBase = copy:FindFirstChild("Base")
-    local copyColorPart = copy:FindFirstChild("ColorPart")
+    local resizeData = {}
+    local function AddPartData(name, targetCFrame)
+        local sourcePart = source:FindFirstChild(name)
+        local copyPart = copy:FindFirstChild(name)
+        if sourcePart and copyPart and sourcePart:IsA("BasePart") and copyPart:IsA("BasePart") then
+            table.insert(resizeData, copyPart)
+            table.insert(resizeData, targetCFrame or sourcePart.CFrame)
+            table.insert(resizeData, sourcePart.Size)
+        end
+    end
 
-    -- Thin Wall is a two-part block. Both Base and ColorPart must be resized
-    -- or its dimensions may not persist after save/load.
-    if sourceBase and sourceColorPart and copyBase and copyColorPart
-        and sourceBase:IsA("BasePart") and sourceColorPart:IsA("BasePart")
-        and copyBase:IsA("BasePart") and copyColorPart:IsA("BasePart") then
+    local sourceColorPart = source:FindFirstChild("ColorPart")
+    local copyColorPart = copy:FindFirstChild("ColorPart")
+    local sourceMouseFilterPart = source:FindFirstChild("MouseFilterPart")
+    local copyMouseFilterPart = copy:FindFirstChild("MouseFilterPart")
+
+    AddPartData("Base")
+    AddPartData("ColorPart")
+    if sourceMouseFilterPart and copyMouseFilterPart
+        and sourceMouseFilterPart:IsA("BasePart") and copyMouseFilterPart:IsA("BasePart") then
+        local targetCFrame = sourceMouseFilterPart.CFrame
+        if sourceColorPart and copyColorPart
+            and sourceColorPart:IsA("BasePart") and copyColorPart:IsA("BasePart") then
+            local relative = sourceColorPart.CFrame:ToObjectSpace(sourceMouseFilterPart.CFrame)
+            targetCFrame = copyColorPart.CFrame * relative
+        end
+        AddPartData("MouseFilterPart", targetCFrame)
+    end
+
+    if #resizeData > 0 then
         task.wait(0.05)
-        local resizeData = {
-            copyBase, sourceBase.CFrame, sourceBase.Size,
-            copyColorPart, sourceColorPart.CFrame, sourceColorPart.Size
-        }
         local resizeOk, resizeError = pcall(function()
             CommitResize:InvokeServer(copy, resizeData)
         end)
-        if not resizeOk then
-            warn("[CloneTool] Thin Wall CommitResize failed:", resizeError)
-        end
-    else
-        local size = sourceRef.Size
-        if (size - defaultSize).Magnitude > 0.1 then
-            task.wait(0.05)
-            local copyRef = GetModelRef(copy)
-            if copyRef then
-                local resizeOk, resizeError = pcall(function()
-                    CommitResize:InvokeServer(copy, {copyRef, sourcePivot, size})
-                end)
-                if not resizeOk then
-                    warn("[CloneTool] CommitResize failed:", resizeError)
-                end
-            end
-        end
+        if not resizeOk then warn("[CloneTool] CommitResize failed:", resizeError) end
     end
 
     return copy
