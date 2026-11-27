@@ -8,11 +8,19 @@ if not LibraryOk or type(JL) ~= "table" or type(JL.Window) ~= "function" then
     return
 end
 
+pcall(function()
+    JL:LoadIconPack("https://molto.pages.dev/source.lua")
+end)
+
+local Camera = workspace.CurrentCamera
+local ViewportWidth = Camera and Camera.ViewportSize.X or 0
+local TwoColumns = ViewportWidth >= 436
+
 local Window = JL:Window({
     Title = "JustX Piggy",
     Width = 640,
     Height = 430,
-    Columns = 2,
+    Columns = TwoColumns and 2 or 1,
     Config = "JustXPiggy",
     SidebarLabels = true
 })
@@ -24,13 +32,13 @@ local PiggyTab = Window:Tab({
     Type = "Grid"
 })
 local AdvancedTools = PiggyTab:Section({
-    Title = "Advanced Tools",
+    Title = TwoColumns and "Advanced Tools" or "Advanced Tools",
     Column = 1,
     Icon = "wrench"
 })
 local NewTools = PiggyTab:Section({
     Title = "New Tools",
-    Column = 2,
+    Column = TwoColumns and 2 or 1,
     Icon = "sparkles"
 })
 
