@@ -365,11 +365,12 @@ local function Cleanup()
  table.clear(Selection) pcall(function() Gui:Destroy() MP:Destroy() RP:Destroy() end)
  pcall(MoveSet,MH,OriginalMoveAdornee and OriginalMoveAdornee.Parent and OriginalMoveAdornee or nil)
  pcall(ResizeSet,RH,OriginalResizeAdornee and OriginalResizeAdornee.Parent and OriginalResizeAdornee or nil)
- Env.JustXPiggyMultiSelectRegister=nil Env.JustXPiggyMultiSelectUnregister=nil Env.MultiSelectCleanup=nil
+ Env.JustXPiggyMultiSelectRegister=nil Env.JustXPiggyMultiSelectUnregister=nil Env.JustXPiggyMultiSelectSetBaseAction=nil Env.JustXPiggyMultiSelectRebindAction=nil Env.MultiSelectCleanup=nil
 end
 local function Register(name)
  if name~="Move" and name~="Resize" and name~="Rotate" then return end
  Registered[name]=true InstallAction()
+ ActiveModeName=Mode()
  if name=="Rotate" then AttachRotate() end
  Gui.Enabled=true Toggle.Visible=Registered[Mode()]==true
  return true
@@ -380,6 +381,13 @@ local function Unregister(name)
 end
 Env.JustXPiggyMultiSelectRegister=Register
 Env.JustXPiggyMultiSelectUnregister=Unregister
+Env.JustXPiggyMultiSelectSetBaseAction=function(action)
+ if type(action)=="function" then
+  OriginalAction=action
+  if ClientState.PlaceBlockAction~=WrappedAction then ClientState.PlaceBlockAction=WrappedAction end
+ end
+end
+Env.JustXPiggyMultiSelectRebindAction=InstallAction
 Env.MultiSelectCleanup=Cleanup
 InstallAction()
 ButtonColor()
