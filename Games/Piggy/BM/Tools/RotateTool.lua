@@ -1265,8 +1265,8 @@ local function Cleanup()
     if ClientState.PlaceBlockAction == RotatePlaceBlockAction then
         ClientState.PlaceBlockAction = OriginalPlaceBlockAction
     end
-    if type(Env.JustXPiggyMultiSelectRebindAction) == "function" then
-        pcall(Env.JustXPiggyMultiSelectRebindAction)
+    if type(Env.JustXPiggyMultiSelectSetBaseAction) == "function" then
+        pcall(Env.JustXPiggyMultiSelectSetBaseAction, OriginalPlaceBlockAction)
     end
 
     if Slots[7] and Slots[7].Instance == Button then
