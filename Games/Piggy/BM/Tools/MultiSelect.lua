@@ -17,22 +17,22 @@ local Box=require(RS.Packages.CustomAdornments.BoxSelectionAdornment)
 local MoveMode=require(BF.Modes.Move)
 local ResizeMode=require(BF.Modes.Resize)
 local ClientState
-local Main=BuildGui:WaitForChild("Main")
-for n=1,100 do
- local ok,mainEnv=pcall(getsenv,Main)
- local live=ok and mainEnv and mainEnv._G and mainEnv._G.BuildModeClient
- if type(live)=="table" and type(live.PlaceBlockAction)=="function" then
-  ClientState=live
-  break
- end
+local BuildModeClient=require(BF:WaitForChild("BuildModeClient"))
+local ClientClass=debug.getupvalues(BuildModeClient.new)[3]
+assert(ClientClass,"[MultiSelect] BuildModeClient class missing")
+for attempt=1,100 do
  for _,v in ipairs(getgc(true)) do
-  if type(v)=="table" and rawget(v,"ScreenGui")==BuildGui and rawget(v,"Toolbar")
-   and type(rawget(v,"PlaceBlockAction"))=="function" then ClientState=v break end
+  if type(v)=="table" and getmetatable(v)==ClientClass
+   and v.MoveHandles and v.ResizeHandles
+   and type(v.PlaceBlockAction)=="function" and v.Toolbar then
+   ClientState=v
+   break
+  end
  end
  if ClientState then break end
  task.wait(.1)
 end
-assert(ClientState,"[MultiSelect] Live BuildModeClient missing")
+assert(ClientState,"[MultiSelect] Live BuildModeClient instance missing")
 local MH,RH=ClientState.MoveHandles,ClientState.ResizeHandles
 assert(MH and RH,"[MultiSelect] Native handles missing")
 local NativeMoveUpdate,NativeResizeUpdate=MoveMode.Update,ResizeMode.Update
@@ -77,7 +77,7 @@ Toggle=Instance.new("ImageButton")
 Toggle.Name="MultiSelectButton" Toggle.Size=UDim2.fromOffset(56.316,56.316)
 Toggle.Position=UDim2.new(0,72,1,0) Toggle.AnchorPoint=Vector2.new(0,1)
 Toggle.BackgroundColor3=Color3.fromRGB(255,142,142) Toggle.BorderSizePixel=0 Toggle.Image=""
-Toggle.AutoButtonColor=true Toggle.Active=true Toggle.Selectable=true Toggle.ZIndex=1 Toggle.Parent=Gui
+Toggle.AutoButtonColor=true Toggle.Active=true Toggle.Selectable=false Toggle.ZIndex=1 Toggle.Parent=Gui
 local corner=Instance.new("UICorner") corner.CornerRadius=UDim.new(0,10) corner.Parent=Toggle
 local aspect=Instance.new("UIAspectRatioConstraint") aspect.AspectRatio=1 aspect.DominantAxis=Enum.DominantAxis.Width aspect.Parent=Toggle
 local label=Instance.new("TextLabel") label.Name="TextLabel" label.Size=UDim2.fromScale(1,1)
