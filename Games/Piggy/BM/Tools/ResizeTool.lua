@@ -126,6 +126,9 @@ local cleaned = false
 local function Cleanup()
     if cleaned then return end
     cleaned = true
+    if type(Env.JustXPiggyMultiSelectUnregister) == "function" then
+        pcall(Env.JustXPiggyMultiSelectUnregister, "Resize")
+    end
     if cachedFunction and cachedIndex and originalConstant ~= nil then
         pcall(debug.setconstant, cachedFunction, cachedIndex, originalConstant)
     end
@@ -138,3 +141,18 @@ local function Cleanup()
     print("[Resize] Tool disabled")
 end
 Env.ResizeToolCleanup = Cleanup
+
+-- Shared multi-selection controller for Move, Resize and Rotate.
+local MultiSelectOk, MultiSelectError = pcall(function()
+    local source = game:HttpGet("https://raw.githubusercontent.com/JustUser-ALT/JustX/main/Games/Piggy/BM/Tools/MultiSelect.lua")
+    local chunk, compileError = loadstring(source)
+    assert(type(chunk) == "function", compileError or "[Resize] MultiSelect loadstring failed")
+    local register = chunk()
+    if type(register) ~= "function" then register = Env.JustXPiggyMultiSelectRegister end
+    assert(type(register) == "function", "[Resize] MultiSelect register function unavailable")
+    register("Resize")
+end)
+if not MultiSelectOk then
+    Cleanup()
+    error("[Resize] MultiSelect failed to start: " .. tostring(MultiSelectError), 0)
+end
