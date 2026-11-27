@@ -1139,6 +1139,11 @@ local Slots = BuildingToolbar.Slots
 assert(Frame and Slots, "[RotateTool] Toolbar structure invalid")
 assert(Slots[6] and Slots[6].Instance, "[RotateTool] Move button not found")
 
+for _, child in ipairs(Frame:GetChildren()) do
+    if child.Name == "RotateButton" then pcall(function() child:Destroy() end) end
+end
+if Slots[7] and Slots[7].Instance and Slots[7].Instance.Name == "RotateButton" then Slots[7] = nil end
+
 --==================================================
 -- CREATE ROTATE BUTTON
 --==================================================
@@ -1273,11 +1278,12 @@ local function Cleanup()
 
     if Slots[7] and Slots[7].Instance == Button then
         Slots[7] = OriginalSlot7
+    elseif Slots[7] and Slots[7].Instance and Slots[7].Instance.Name == "RotateButton" then
+        Slots[7] = OriginalSlot7
     end
-
-    pcall(function()
-        Button:Destroy()
-    end)
+    for _, child in ipairs(Frame:GetChildren()) do
+        if child.Name == "RotateButton" then pcall(function() child:Destroy() end) end
+    end
 
     pcall(function()
         Frame.Size = OriginalFrameSize
