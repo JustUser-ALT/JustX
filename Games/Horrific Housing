@@ -404,13 +404,10 @@ local function getShotTarget(origin, tool, maxDistance, ignoreFrozen, requireHit
     local best
     for _, player in ipairs(Players:GetPlayers()) do
         local result = evaluateShotTarget(player, origin, tool, maxDistance, ignoreFrozen)
-        if result and (not best or result.Distance < best.Distance) then
+        if result and (not requireHit or result.Hit)
+            and (not best or result.Distance < best.Distance) then
             best = result
         end
-    end
-
-    if best and requireHit and not best.Hit then
-        return nil
     end
 
     return best
@@ -829,12 +826,11 @@ local function setSelectedShotTools(selection)
         return
     end
 
-    if not shotGui or not shotGui.Parent then
-        shotGui, shotButton, shotOutline, shotLabel = createShotButton()
-        shotButton.Activated:Connect(fireSelectedTools)
-    end
-
-    updateShotButtonStyle()
+    -- Weapons are fired from world clicks/taps; no extra FIRE button is created.
+    shotGui = nil
+    shotButton = nil
+    shotOutline = nil
+    shotLabel = nil
     startClickInterception()
 
     if selectedShotTools["Freeze Ray"] then
@@ -1053,11 +1049,7 @@ local function activatePrompt(prompt, pumpkin)
     return pcall(function()
         prompt:InputHoldBegin()
         task.wait(math.max(prompt.HoldDuration, 0.05))
-        if isPromptInRange(prompt, pumpkin) then
-            prompt:InputHoldEnd()
-        else
-            prompt:InputHoldEnd()
-        end
+        prompt:InputHoldEnd()
     end)
 end
 
