@@ -23,10 +23,15 @@ local PiggyTab = Window:Tab({
     Icon = "gamepad-2",
     Type = "Grid"
 })
-local Tools = PiggyTab:Section({
-    Title = "Tools",
+local AdvancedTools = PiggyTab:Section({
+    Title = "Advanced Tools",
     Column = 1,
     Icon = "wrench"
+})
+local NewTools = PiggyTab:Section({
+    Title = "New Tools",
+    Column = 1,
+    Icon = "sparkles"
 })
 
 local Env = (getgenv and getgenv()) or _G
@@ -83,33 +88,48 @@ local function setTool(Name, Enabled)
     end
 end
 
-ToolToggles.Move = Tools:Toggle({
+ToolToggles.Move = AdvancedTools:Toggle({
     Name = "Move Tool", Icon = "move", Default = false,
     Flag = "Piggy_BM_Move",
     Callback = function(Value) setTool("Move", Value) end
 })
-ToolToggles.Resize = Tools:Toggle({
+ToolToggles.Resize = AdvancedTools:Toggle({
     Name = "Resize Tool", Icon = "maximize", Default = false,
     Flag = "Piggy_BM_Resize",
     Callback = function(Value) setTool("Resize", Value) end
 })
-ToolToggles.Rotate = Tools:Toggle({
+ToolToggles.Rotate = NewTools:Toggle({
     Name = "Rotate Tool", Icon = "rotate-cw", Default = false,
     Flag = "Piggy_BM_Rotate",
     Callback = function(Value) setTool("Rotate", Value) end
 })
-ToolToggles.Copy = Tools:Toggle({
+ToolToggles.Copy = NewTools:Toggle({
     Name = "Copy Tool", Icon = "copy", Default = false,
     Flag = "Piggy_BM_Copy",
     Callback = function(Value) setTool("Copy", Value) end
 })
-ToolToggles.Clone = Tools:Toggle({
+ToolToggles.Clone = NewTools:Toggle({
     Name = "Clone Tool", Icon = "copy-plus", Default = false,
     Flag = "Piggy_BM_Clone",
     Callback = function(Value) setTool("Clone", Value) end
 })
 
+ToolToggles.MultiSelect = NewTools:Toggle({
+    Name = "Multi Select Tool", Icon = "layers", Default = false,
+    Flag = "Piggy_BM_MultiSelect",
+    Callback = function(Value)
+        Env.JustXPiggyMultiSelectToolEnabled = Value
+        if type(Env.JustXPiggyMultiSelectSetEnabled) == "function" then
+            Env.JustXPiggyMultiSelectSetEnabled(Value)
+        end
+    end
+})
+
 JL:OnUnload(function()
+    Env.JustXPiggyMultiSelectToolEnabled = false
+    if type(Env.JustXPiggyMultiSelectSetEnabled) == "function" then
+        pcall(Env.JustXPiggyMultiSelectSetEnabled, false)
+    end
     for Name in pairs(ToolConfig) do stopTool(Name) end
 end)
 
