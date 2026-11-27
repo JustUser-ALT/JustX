@@ -1,4 +1,4 @@
-local BUILD_REVISION = "HH-2026.11.18-r8"
+local BUILD_REVISION = "HH-2026.11.27-r9"
 warn("[Horrific Housing] Loaded build: " .. BUILD_REVISION)
 
 local Players = game:GetService("Players")
@@ -302,7 +302,30 @@ local function getPaintballParts()
     return tool, muzzle, remote, range.Value, rate.Value
 end
 
-local function evaluateShotTarget(player, origin, tool, maxDistance, ignoreFrozen, requireHit)
+local function isFirstPerson(camera)
+    camera = camera or workspace.CurrentCamera
+    local character = LocalPlayer.Character
+    local head = character and character:FindFirstChild("Head")
+
+    if not camera or not head then
+        return false
+    end
+
+    return (camera.CFrame.Position - head.Position).Magnitude <= 1.25
+end
+
+local function makeShotRayParams(tool)
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = {
+        LocalPlayer.Character,
+        tool
+    }
+    params.IgnoreWater = true
+    return params
+end
+
+local function evaluateShotTarget(player, origin, tool, maxDistance, ignoreFrozen)
     if player == LocalPlayer or not PlayerDetection.IsAlive(player) then
         return nil
     end
@@ -314,9 +337,7 @@ local function evaluateShotTarget(player, origin, tool, maxDistance, ignoreFroze
     local character = player.Character
     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
     local root = character and character:FindFirstChild("HumanoidRootPart")
-    local camera = workspace.CurrentCamera
-
-    if not humanoid or humanoid.Health <= 0 or not root or not camera then
+    if not humanoid or humanoid.Health <= 0 or not root then
         return nil
     end
 
@@ -326,27 +347,8 @@ local function evaluateShotTarget(player, origin, tool, maxDistance, ignoreFroze
         return nil
     end
 
-    local cameraOffset = root.Position - camera.CFrame.Position
-    if cameraOffset.Magnitude <= 0 then
-        return nil
-    end
-
-    local dot = math.clamp(camera.CFrame.LookVector:Dot(cameraOffset.Unit), -1, 1)
-    local angle = math.deg(math.acos(dot))
-    if angle > SHOT_CONFIG.MaxAimAngle then
-        return nil
-    end
-
-    local params = RaycastParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-    params.FilterDescendantsInstances = {
-        LocalPlayer.Character,
-        tool
-    }
-    params.IgnoreWater = true
-
-    local hit = workspace:Raycast(origin, offset, params)
-    if (requireHit and not hit) or (hit and not hit.Instance:IsDescendantOf(character)) then
+    local hit = workspace:Raycast(origin, offset, makeShotRayParams(tool))
+    if hit and not hit.Instance:IsDescendantOf(character) then
         return nil
     end
 
@@ -354,21 +356,61 @@ local function evaluateShotTarget(player, origin, tool, maxDistance, ignoreFroze
         Player = player,
         Part = root,
         Hit = hit,
-        AimAngle = angle,
         Distance = distance
     }
 end
 
 local function getShotTarget(origin, tool, maxDistance, ignoreFrozen, requireHit)
-    local best
+    local camera = workspace.CurrentCamera
+    if not camera then
+        return nil
+    end
 
+    -- First person: strict center-screen ray. No target snapping outside the green line.
+    if isFirstPerson(camera) then
+        local cameraOrigin = camera.CFrame.Position
+        local ray = workspace:Raycast(
+            cameraOrigin,
+            camera.CFrame.LookVector * maxDistance,
+            makeShotRayParams(tool)
+        )
+
+        if not ray then
+            return nil
+        end
+
+        for _, player in ipairs(Players:GetPlayers()) do
+            local character = player.Character
+            if character and ray.Instance:IsDescendantOf(character)
+                and PlayerDetection.IsAlive(player)
+                and (not ignoreFrozen or not PlayerDetection.IsFrozen(player)) then
+                local root = character:FindFirstChild("HumanoidRootPart")
+                local distance = (root and root.Position - origin).Magnitude or math.huge
+                if root and distance > 0 and distance <= maxDistance then
+                    return {
+                        Player = player,
+                        Part = root,
+                        Hit = ray,
+                        Distance = distance
+                    }
+                end
+            end
+        end
+
+        return nil
+    end
+
+    -- Third person: choose the nearest visible eligible player.
+    local best
     for _, player in ipairs(Players:GetPlayers()) do
-        local result = evaluateShotTarget(player, origin, tool, maxDistance, ignoreFrozen, requireHit)
-        if result and (not best
-            or result.AimAngle < best.AimAngle
-            or (result.AimAngle == best.AimAngle and result.Distance < best.Distance)) then
+        local result = evaluateShotTarget(player, origin, tool, maxDistance, ignoreFrozen)
+        if result and (not best or result.Distance < best.Distance) then
             best = result
         end
+    end
+
+    if best and requireHit and not best.Hit then
+        return nil
     end
 
     return best
@@ -668,8 +710,25 @@ local function watchCharacter(character)
     end
 end
 
+local function isShotButtonInput(input)
+    if not shotButton or not shotButton.Parent then
+        return false
+    end
+
+    local position = input.Position
+    for _, object in ipairs(PlayerGui:GetGuiObjectsAtPosition(position.X, position.Y)) do
+        if object == shotButton or object:IsDescendantOf(shotButton) then
+            return true
+        end
+    end
+
+    return false
+end
+
 local function onClickInputBegan(input, gameProcessed)
-    if gameProcessed then
+    -- Roblox marks many world taps as processed on mobile. Only ignore our own
+    -- FIRE button here because its Activated signal already handles that press.
+    if isShotButtonInput(input) then
         return
     end
 
@@ -797,8 +856,8 @@ local function setSelectedShotTools(selection)
             shotBeam.Name = "HH_FreezeRayBeam"
             shotBeam.Attachment1 = shotTargetAttachment
             shotBeam.Color = ColorSequence.new(SHOT_CONFIG.FreezeBeamColor)
-            shotBeam.Width0 = 0.055
-            shotBeam.Width1 = 0.025
+            shotBeam.Width0 = 0.11
+            shotBeam.Width1 = 0.075
             shotBeam.FaceCamera = true
             shotBeam.LightEmission = 1
             shotBeam.Enabled = false
@@ -935,29 +994,70 @@ local function getPumpkinComponents(model)
     return prompt, billboard, icon
 end
 
-local function activatePrompt(prompt)
+local function getPromptWorldPosition(prompt)
+    local parent = prompt and prompt.Parent
+    if not parent then
+        return nil
+    end
+
+    if parent:IsA("Attachment") then
+        return parent.WorldPosition
+    end
+
+    if parent:IsA("BasePart") then
+        return parent.Position
+    end
+
+    local part = parent:IsA("Model") and (parent.PrimaryPart or parent:FindFirstChildWhichIsA("BasePart", true))
+    return part and part.Position or nil
+end
+
+local function isPromptInRange(prompt, pumpkin)
     if not prompt or not prompt.Parent or not prompt.Enabled then
         return false
     end
 
-    if type(fireproximityprompt) == "function" then
-        local fired = pcall(function()
-            fireproximityprompt(prompt)
-        end)
+    local character = LocalPlayer.Character
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    local targetPosition = getPromptWorldPosition(prompt)
+    if not root or not targetPosition then
+        return false
+    end
 
-        if fired then
-            task.wait(0.12)
+    local offset = targetPosition - root.Position
+    local maxDistance = math.max(prompt.MaxActivationDistance, 0)
+    if offset.Magnitude > maxDistance then
+        return false
+    end
+
+    if prompt.RequiresLineOfSight and offset.Magnitude > 0 then
+        local params = RaycastParams.new()
+        params.FilterType = Enum.RaycastFilterType.Exclude
+        params.FilterDescendantsInstances = {character}
+        params.IgnoreWater = true
+
+        local hit = workspace:Raycast(root.Position, offset, params)
+        if hit and not hit.Instance:IsDescendantOf(pumpkin) then
+            return false
         end
     end
 
-    if not prompt.Parent or not prompt.Enabled then
-        return true
+    return true
+end
+
+local function activatePrompt(prompt, pumpkin)
+    if not isPromptInRange(prompt, pumpkin) then
+        return false
     end
 
     return pcall(function()
         prompt:InputHoldBegin()
         task.wait(math.max(prompt.HoldDuration, 0.05))
-        prompt:InputHoldEnd()
+        if isPromptInRange(prompt, pumpkin) then
+            prompt:InputHoldEnd()
+        else
+            prompt:InputHoldEnd()
+        end
     end)
 end
 
@@ -972,7 +1072,8 @@ local function trySinisterClaim(model)
     end
 
     local prompt, billboard, icon = getPumpkinComponents(model)
-    if not prompt or not icon or not icon.Parent or not prompt.Enabled then
+    if not prompt or not icon or not icon.Parent or not prompt.Enabled
+        or not isPromptInRange(prompt, model) then
         return
     end
 
@@ -992,7 +1093,7 @@ local function trySinisterClaim(model)
 
     record.Busy = true
     record.LastAttemptAt = now
-    activatePrompt(prompt)
+    activatePrompt(prompt, model)
     record.Busy = false
 end
 
