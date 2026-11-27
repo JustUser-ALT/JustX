@@ -12,7 +12,7 @@ local Window = JL:Window({
     Title = "JustX Piggy",
     Width = 640,
     Height = 430,
-    Columns = 1,
+    Columns = 2,
     Config = "JustXPiggy",
     SidebarLabels = true
 })
@@ -30,7 +30,7 @@ local AdvancedTools = PiggyTab:Section({
 })
 local NewTools = PiggyTab:Section({
     Title = "New Tools",
-    Column = 1,
+    Column = 2,
     Icon = "sparkles"
 })
 
