@@ -1,20 +1,25 @@
-print("[JustXPiggy] Build: 2026-11-27-unload-dialog-fix")
+print("[JustXPiggy] Build: 2026-11-27-tools-regression-fix-1")
 
 local LibraryUrl = "https://raw.githubusercontent.com/JustUser-ALT/JustXLibrary/a29bba1560fa59cce60e715e6f08588fb44cd126/JustLib.lua"
-local LibraryOk, JL = pcall(function()
-    return loadstring(game:HttpGet(LibraryUrl))()
-end)
-
-if not LibraryOk or type(JL) ~= "table" or type(JL.Window) ~= "function" then
-    warn("[JustXPiggy] JustXLibrary failed to load:", JL)
-    return
+local JL
+local LibraryError
+for attempt = 1, 3 do
+    local ok, result = pcall(function()
+        local source = game:HttpGet(LibraryUrl)
+        local chunk, compileError = loadstring(source)
+        assert(type(chunk) == "function", compileError or "JustXLibrary compile failed")
+        return chunk()
+    end)
+    if ok and type(result) == "table" and type(result.Window) == "function" then
+        JL = result
+        break
+    end
+    LibraryError = result
+    if attempt < 3 then task.wait(0.5) end
 end
-
-local IconPackOk, IconPackResult = pcall(function()
-    return JL:LoadIconPack("https://molto.pages.dev/source.lua")
-end)
-if not IconPackOk or IconPackResult ~= true then
-    warn("[JustXPiggy] Lucide icon pack failed to load:", IconPackResult)
+if not JL then
+    warn("[JustXPiggy] JustXLibrary failed after 3 attempts:", LibraryError)
+    return
 end
 
 local Camera = workspace.CurrentCamera
@@ -132,12 +137,21 @@ ToolToggles.MultiSelect = NewTools:Toggle({
     end
 })
 
+task.spawn(function()
+    local ok, result = pcall(function()
+        return JL:LoadIconPack("https://molto.pages.dev/source.lua")
+    end)
+    if not ok or result ~= true then
+        warn("[JustXPiggy] Lucide icon pack failed to load:", result)
+    end
+end)
+
 JL:OnUnload(function()
     Env.JustXPiggyMultiSelectToolEnabled = false
     if type(Env.JustXPiggyMultiSelectSetEnabled) == "function" then
         pcall(Env.JustXPiggyMultiSelectSetEnabled, false)
     end
-    for Name in pairs(ToolConfig) do stopTool(Name) end
+    for _, Name in ipairs({"Clone", "Rotate", "Resize", "Move"}) do stopTool(Name) end
 end)
 
 print("[JustXPiggy] Loaded")
