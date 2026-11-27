@@ -116,6 +116,13 @@ local function CreateGridDivider(options)
         GridDivider.Font = Enum.Font.Gotham
     end
 
+    local rounded = GridDivider:FindFirstChildOfClass("UICorner")
+    if not rounded then
+        rounded = Instance.new("UICorner")
+        rounded.Parent = GridDivider
+    end
+    rounded.CornerRadius = UDim.new(0, 8)
+
     -- Final layout from the approved MultiMoveTest preview.
     GridDivider.Size = UDim2.fromOffset(72, 34)
     GridDivider.TextSize = 16
