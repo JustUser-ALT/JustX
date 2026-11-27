@@ -160,9 +160,11 @@ local function CommitResize()
  if not ResizeActive then return end
  ResizeActive=false local driver=ResizeDriver ResizeDriver=nil
  if Busy then return end Busy=true
+ local blocks={}
+ for _,b in ipairs(Selection) do if b~=driver and Valid(b) then table.insert(blocks,b) end end
  task.spawn(function()
   local remote=RS:FindFirstChild("Functions") and RS.Functions:FindFirstChild("CommitResize")
-  if remote then for _,b in ipairs(Selection) do if b~=driver and Valid(b) then
+  if remote then for _,b in ipairs(blocks) do if Valid(b) then
    local parts={} for _,v in ipairs(b:GetDescendants()) do if v:IsA("BasePart") and v.Name~="MouseFilterPart" then table.insert(parts,v) end end
    if #parts==1 then local p=parts[1] pcall(function() remote:InvokeServer(b,{p,p.CFrame,p.Size}) end)
    else warn("[MultiSelect] Resize commit skipped: additional blocks need exactly one real BasePart") end
