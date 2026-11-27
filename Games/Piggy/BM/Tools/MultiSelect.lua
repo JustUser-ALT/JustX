@@ -377,6 +377,13 @@ local function Register(name)
 end
 local function Unregister(name)
  Registered[name]=nil
+ if name=="Rotate" and RotateMode then
+  if RotateOriginalUpdate then RotateMode.Update=RotateOriginalUpdate end
+  Env.RotateToolPivotOverride=PreviousPivot
+  RotateMode=nil
+  RotateOriginalUpdate=nil
+  PreviousPivot=nil
+ end
  if not Registered.Move and not Registered.Resize and not Registered.Rotate then Cleanup() end
 end
 Env.JustXPiggyMultiSelectRegister=Register
