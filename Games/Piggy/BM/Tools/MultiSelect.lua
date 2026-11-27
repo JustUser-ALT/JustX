@@ -12,7 +12,9 @@ local BuildModel=workspace:WaitForChild("BuildModel")
 local BF=RS:WaitForChild("BuildMode")
 local BuildingMode=require(BF:WaitForChild("BuildingMode"))
 local Changed=BF:WaitForChild("Events"):WaitForChild("BuildingModeChanged")
-local Placement=require(BF:WaitForChild("PlacementLogic")).new()
+local PlacementLogic=require(BF:WaitForChild("PlacementLogic"))
+local Placement=PlacementLogic.new()
+local RotatePlacement
 local Box=require(RS.Packages.CustomAdornments.BoxSelectionAdornment)
 local MoveMode=require(BF.Modes.Move)
 local ResizeMode=require(BF.Modes.Resize)
@@ -64,8 +66,10 @@ local function FindBlock(instance)
   current=current.Parent
  end
 end
-local function Hover()
- local ok,r=pcall(function() return Placement:Raycast() end)
+local function Hover(modeName)
+ local source=modeName=="Rotate" and RotatePlacement or Placement
+ if not source then return nil end
+ local ok,r=pcall(function() return source:Raycast() end)
  if ok and r and r.Instance then return FindBlock(r.Instance) end
 end
 local function ButtonColor()
@@ -99,12 +103,16 @@ local function RemoveOutline(b)
  local o=Outlines[b] Outlines[b]=nil
  if o then pcall(function() o:SetAdornee(nil) o:Destroy() end) end
 end
-local function RefreshOutlines()
+local function RefreshOutlines(forceBounds)
  for i=#Selection,1,-1 do
   local b=Selection[i]
   if not Valid(b) then table.remove(Selection,i) RemoveOutline(b)
   else
-   if not Outlines[b] then AddOutline(b) end
+   local outline=Outlines[b]
+   if not outline then AddOutline(b) outline=Outlines[b] end
+   if forceBounds and outline then
+    pcall(function() outline:SetAdornee(nil) outline:SetAdornee(b) end)
+   end
   end
  end
 end
@@ -178,7 +186,7 @@ local function CommitResize()
    if #parts==1 then local p=parts[1] pcall(function() remote:InvokeServer(b,{p,p.CFrame,p.Size}) end)
    else warn("[MultiSelect] Resize commit skipped: additional blocks need exactly one real BasePart") end
   end end end
-  task.wait() RefreshOutlines() Busy=false
+  task.wait() RefreshOutlines(true) Busy=false
  end)
 end
 local function CommitRotate()
@@ -220,7 +228,7 @@ local function Action(self,...)
  local mode=Mode()
  if mode~="Move" and mode~="Resize" and mode~="Rotate" then return OriginalAction(self,...) end
  ClientState.SelectedBlock=nil
- local b=Hover()
+ local b=Hover(mode)
  if b then SelectBlock(b) else CommitCurrent() Clear() end
  return Enum.ContextActionResult.Sink
 end
@@ -300,7 +308,9 @@ end
 local function AttachRotate()
  local mode=Env.RotateToolMode
  if type(mode)~="table" or mode==RotateMode then return end
- RotateMode=mode PreviousPivot=Env.RotateToolPivotOverride
+ RotateMode=mode
+ RotatePlacement=PlacementLogic.new()
+ PreviousPivot=Env.RotateToolPivotOverride
  RotateOriginalUpdate=mode.Update
  mode.Update=function(self,dt,state)
   if not Enabled or not Is("Rotate") then return RotateOriginalUpdate(self,dt,state) end
@@ -355,10 +365,11 @@ end))
 table.insert(Connections,RunService.RenderStepped:Connect(function()
  if Cleaned then return end
  AttachRotate()
+ if Registered[Mode()] and ClientState.PlaceBlockAction~=WrappedAction then InstallAction() end
  if Enabled then
   RefreshOutlines()
   if Is("Move") then if MoveSession then ApplyMove() end if not MoveSession then ClientState.SelectedBlock=nil end UpdateProxy(MP,MPP)
-  elseif Is("Resize") then if not ResizeActive then ClientState.SelectedBlock=nil end UpdateProxy(RP,RPP) if ResizeActive then RefreshOutlines() end
+  elseif Is("Resize") then if not ResizeActive then ClientState.SelectedBlock=nil end UpdateProxy(RP,RPP) if ResizeActive then RefreshOutlines(true) end
   elseif Is("Rotate") then Env.RotateToolPivotOverride=function(model) if Enabled and Is("Rotate") and #Selection>1 and model==Driver() then return Bounds(model) end end end
  end
 end))
@@ -400,6 +411,7 @@ local function Unregister(name)
   Env.RotateToolPivotOverride=PreviousPivot
   RotateMode=nil
   RotateOriginalUpdate=nil
+  RotatePlacement=nil
   PreviousPivot=nil
  end
  if not Registered.Move and not Registered.Resize and not Registered.Rotate then Cleanup() end
