@@ -102,11 +102,6 @@ ToolToggles.Rotate = NewTools:Toggle({
     Flag = "Piggy_BM_Rotate",
     Callback = function(Value) setTool("Rotate", Value) end
 })
-ToolToggles.Copy = NewTools:Toggle({
-    Name = "Copy Tool", Icon = "copy", Default = false,
-    Flag = "Piggy_BM_Copy",
-    Callback = function(Value) setTool("Copy", Value) end
-})
 ToolToggles.Clone = NewTools:Toggle({
     Name = "Clone Tool", Icon = "copy-plus", Default = false,
     Flag = "Piggy_BM_Clone",
