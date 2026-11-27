@@ -1104,7 +1104,9 @@ RotateMode:Init(ClientState)
 -- Preserve the original dispatcher for every native mode.
 --==================================================
 
-local OriginalPlaceBlockAction = ClientState.PlaceBlockAction
+local OriginalPlaceBlockAction = type(Env.JustXPiggyMultiSelectGetBaseAction) == "function"
+    and Env.JustXPiggyMultiSelectGetBaseAction()
+    or ClientState.PlaceBlockAction
 assert(
     type(OriginalPlaceBlockAction) == "function",
     "[RotateTool] ClientState.PlaceBlockAction missing"
