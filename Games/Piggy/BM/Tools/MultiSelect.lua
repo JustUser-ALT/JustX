@@ -27,7 +27,7 @@ end
 assert(ClientState,"[MultiSelect] BuildModeClient missing")
 local MH,RH=ClientState.MoveHandles,ClientState.ResizeHandles
 assert(MH and RH,"[MultiSelect] Native handles missing")
-local MoveUpdate,ResizeUpdate=MoveMode.Update,ResizeMode.Update
+local NativeMoveUpdate,NativeResizeUpdate=MoveMode.Update,ResizeMode.Update
 local MoveSet,ResizeSet=MH.SetAdornee,RH.SetAdornee
 local MoveRaw,ResizeRaw=rawget(MH,"SetAdornee"),rawget(RH,"SetAdornee")
 local OriginalMoveAdornee,OriginalResizeAdornee=MH._Adornee,RH._Adornee
@@ -35,7 +35,6 @@ local Selection,Outlines,Connections,Registered={},{},{},{}
 local Enabled,Cleaned,Busy=false,false,false
 local MoveSession,ResizeActive,ResizeDriver=nil,false,nil
 local ResizeObjects={}
-local MoveUpdateOriginal,ResizeUpdateOriginal
 local ActiveModeName
 local RotateMode,RotateOriginalUpdate,PreviousPivot=nil,nil,nil
 local OriginalAction,WrappedAction
@@ -218,27 +217,24 @@ local function InstallAction()
  local current=ClientState.PlaceBlockAction
  if current~=WrappedAction then OriginalAction=current WrappedAction=Action ClientState.PlaceBlockAction=WrappedAction end
 end
-MoveUpdateOriginal=MoveUpdateOriginal or MoveUpdate
 local function MoveUpdate(self,...)
- if not Enabled or not Is("Move") or #Selection==0 then return MoveUpdateOriginal(self,...) end
+ if not Enabled or not Is("Move") or #Selection==0 then return NativeMoveUpdate(self,...) end
  local target=#Selection>1 and MP or Selection[1]
  rawset(MH,"SetAdornee",function() end)
- local r=table.pack(pcall(MoveUpdateOriginal,self,...))
+ local r=table.pack(pcall(NativeMoveUpdate,self,...))
  rawset(MH,"SetAdornee",MoveRaw)
  if not r[1] then error(r[2],0) end
  pcall(MoveSet,MH,target) return table.unpack(r,2,r.n)
 end
-MoveUpdateOriginal=MoveUpdate
 local function ResizeUpdate(self,...)
- if not Enabled or not Is("Resize") or #Selection==0 then return ResizeUpdateOriginal(self,...) end
+ if not Enabled or not Is("Resize") or #Selection==0 then return NativeResizeUpdate(self,...) end
  local target=#Selection>1 and RP or Selection[1]
  rawset(RH,"SetAdornee",function() end)
- local r=table.pack(pcall(ResizeUpdateOriginal,self,...))
+ local r=table.pack(pcall(NativeResizeUpdate,self,...))
  rawset(RH,"SetAdornee",ResizeRaw)
  if not r[1] then error(r[2],0) end
  pcall(ResizeSet,RH,target) return table.unpack(r,2,r.n)
 end
-ResizeUpdateOriginal=ResizeUpdate
 MoveMode.Update=MoveUpdate ResizeMode.Update=ResizeUpdate
 local function BeginMove()
  if not Enabled or not Is("Move") or #Selection<2 then MoveSession=nil return end
@@ -359,8 +355,8 @@ local function Cleanup()
  if Cleaned then return end Cleaned=true CommitCurrent()
  for _,c in ipairs(Connections) do pcall(function() c:Disconnect() end) end
  if ClientState.PlaceBlockAction==WrappedAction then ClientState.PlaceBlockAction=OriginalAction end
- if MoveMode.Update==MoveUpdate then MoveMode.Update=MoveUpdateOriginal end
- if ResizeMode.Update==ResizeUpdate then ResizeMode.Update=ResizeUpdateOriginal end
+ if MoveMode.Update==MoveUpdate then MoveMode.Update=NativeMoveUpdate end
+ if ResizeMode.Update==ResizeUpdate then ResizeMode.Update=NativeResizeUpdate end
  if ResizeModule and ResizeNew and ResizeModule.new~=ResizeNew then ResizeModule.new=ResizeNew end
  if ResizeIndex and ResizeDrag and ResizeIndex.Drag~=ResizeDrag then ResizeIndex.Drag=ResizeDrag end
  if RotateMode and RotateOriginalUpdate then RotateMode.Update=RotateOriginalUpdate end
