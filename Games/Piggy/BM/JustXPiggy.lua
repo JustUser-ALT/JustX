@@ -1,3 +1,5 @@
+print("[JustXPiggy] Build: 2026-11-27-tools-icons-fix")
+
 local LibraryUrl = "https://raw.githubusercontent.com/JustUser-ALT/JustXLibrary/63d2e9c979eb634b99b95a7d49c2352ad44bd40f/JustLib.lua"
 local LibraryOk, JL = pcall(function()
     return loadstring(game:HttpGet(LibraryUrl))()
