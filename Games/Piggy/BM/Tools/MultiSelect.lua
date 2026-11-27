@@ -17,14 +17,22 @@ local Box=require(RS.Packages.CustomAdornments.BoxSelectionAdornment)
 local MoveMode=require(BF.Modes.Move)
 local ResizeMode=require(BF.Modes.Resize)
 local ClientState
+local Main=BuildGui:WaitForChild("Main")
 for n=1,100 do
+ local ok,mainEnv=pcall(getsenv,Main)
+ local live=ok and mainEnv and mainEnv._G and mainEnv._G.BuildModeClient
+ if type(live)=="table" and type(live.PlaceBlockAction)=="function" then
+  ClientState=live
+  break
+ end
  for _,v in ipairs(getgc(true)) do
-  if type(v)=="table" and rawget(v,"ScreenGui")==BuildGui and rawget(v,"Toolbar") and type(rawget(v,"PlaceBlockAction"))=="function" then ClientState=v break end
+  if type(v)=="table" and rawget(v,"ScreenGui")==BuildGui and rawget(v,"Toolbar")
+   and type(rawget(v,"PlaceBlockAction"))=="function" then ClientState=v break end
  end
  if ClientState then break end
  task.wait(.1)
 end
-assert(ClientState,"[MultiSelect] BuildModeClient missing")
+assert(ClientState,"[MultiSelect] Live BuildModeClient missing")
 local MH,RH=ClientState.MoveHandles,ClientState.ResizeHandles
 assert(MH and RH,"[MultiSelect] Native handles missing")
 local NativeMoveUpdate,NativeResizeUpdate=MoveMode.Update,ResizeMode.Update
@@ -33,6 +41,7 @@ local MoveRaw,ResizeRaw=rawget(MH,"SetAdornee"),rawget(RH,"SetAdornee")
 local OriginalMoveAdornee,OriginalResizeAdornee=MH._Adornee,RH._Adornee
 local Selection,Outlines,Connections,Registered={},{},{},{}
 local Enabled,Cleaned,Busy=false,false,false
+local ToolEnabled=Env.JustXPiggyMultiSelectToolEnabled==true
 local MoveSession,ResizeActive,ResizeDriver=nil,false,nil
 local ResizeObjects={}
 local ActiveModeName
@@ -48,9 +57,16 @@ local function Is(name) return Mode()==name end
 local function Valid(b) return typeof(b)=="Instance" and b:IsA("Model") and b.Parent==BuildModel and b.PrimaryPart~=nil end
 local function Index(b) for i,v in ipairs(Selection) do if v==b then return i end end end
 local function Driver() local b=Selection[#Selection] if Valid(b) then return b end end
+local function FindBlock(instance)
+ local current=instance
+ while current and current~=BuildModel do
+  if current:IsA("Model") and Valid(current) then return current end
+  current=current.Parent
+ end
+end
 local function Hover()
  local ok,r=pcall(function() return Placement:Raycast() end)
- if ok and r and r.Instance and Valid(r.Instance.Parent) then return r.Instance.Parent end
+ if ok and r and r.Instance then return FindBlock(r.Instance) end
 end
 local function ButtonColor()
  if Toggle then Toggle.BackgroundColor3=Enabled and Color3.fromRGB(97,255,115) or Color3.fromRGB(255,142,142) end
@@ -64,12 +80,6 @@ Toggle.BackgroundColor3=Color3.fromRGB(255,142,142) Toggle.BorderSizePixel=0 Tog
 Toggle.AutoButtonColor=true Toggle.Active=true Toggle.Selectable=true Toggle.ZIndex=1 Toggle.Parent=Gui
 local corner=Instance.new("UICorner") corner.CornerRadius=UDim.new(0,10) corner.Parent=Toggle
 local aspect=Instance.new("UIAspectRatioConstraint") aspect.AspectRatio=1 aspect.DominantAxis=Enum.DominantAxis.Width aspect.Parent=Toggle
-local shadow=Instance.new("ImageLabel") shadow.Name="DropShadow" shadow.Size=UDim2.new(1,10,1,10)
-shadow.Position=UDim2.new(.5,1,.5,1) shadow.AnchorPoint=Vector2.new(.5,.5) shadow.BackgroundTransparency=1
-shadow.Image="rbxassetid://6865151684" shadow.ImageColor3=Color3.new(0,0,0) shadow.ImageTransparency=.2
-shadow.ScaleType=Enum.ScaleType.Slice shadow.ZIndex=0 shadow.Parent=Toggle
-local stroke=Instance.new("UIStroke") stroke.Name="TutStroke" stroke.Color=Color3.fromRGB(101,255,98)
-stroke.Thickness=1 stroke.ApplyStrokeMode=Enum.ApplyStrokeMode.Border stroke.Enabled=false stroke.Parent=Toggle
 local label=Instance.new("TextLabel") label.Name="TextLabel" label.Size=UDim2.fromScale(1,1)
 label.BackgroundTransparency=1 label.Text="MULTI" label.TextColor3=Color3.new(0,0,0)
 label.TextSize=14 label.TextScaled=true label.Font=Enum.Font.GothamBold label.ZIndex=2 label.Parent=Toggle
@@ -95,7 +105,6 @@ local function RefreshOutlines()
   if not Valid(b) then table.remove(Selection,i) RemoveOutline(b)
   else
    if not Outlines[b] then AddOutline(b) end
-   local o=Outlines[b] if o then pcall(function() o:SetAdornee(nil) o:SetAdornee(b) end) end
   end
  end
 end
@@ -332,7 +341,7 @@ end))
 table.insert(Connections,Changed.Event:Connect(function(mode)
  task.defer(function()
   local name=Mode(mode)
-  Gui.Enabled=Registered.Move or Registered.Resize or Registered.Rotate
+  Gui.Enabled=ToolEnabled and (Registered.Move or Registered.Resize or Registered.Rotate)
   Toggle.Visible=Gui.Enabled and Registered[name]==true
   if Enabled and ActiveModeName and name~=ActiveModeName then Enabled=false Clear() end
   ActiveModeName=name
@@ -367,15 +376,22 @@ local function Cleanup()
  table.clear(Selection) ClientState.SelectedBlock=nil pcall(MoveSet,MH,nil) pcall(ResizeSet,RH,nil) pcall(function() Gui:Destroy() MP:Destroy() RP:Destroy() end)
  pcall(MoveSet,MH,OriginalMoveAdornee and OriginalMoveAdornee.Parent and OriginalMoveAdornee or nil)
  pcall(ResizeSet,RH,OriginalResizeAdornee and OriginalResizeAdornee.Parent and OriginalResizeAdornee or nil)
- Env.JustXPiggyMultiSelectRegister=nil Env.JustXPiggyMultiSelectUnregister=nil Env.JustXPiggyMultiSelectSetBaseAction=nil Env.JustXPiggyMultiSelectGetBaseAction=nil Env.JustXPiggyMultiSelectRebindAction=nil Env.MultiSelectCleanup=nil
+ Env.JustXPiggyMultiSelectRegister=nil Env.JustXPiggyMultiSelectUnregister=nil Env.JustXPiggyMultiSelectSetBaseAction=nil Env.JustXPiggyMultiSelectGetBaseAction=nil Env.JustXPiggyMultiSelectRebindAction=nil Env.JustXPiggyMultiSelectSetEnabled=nil Env.MultiSelectCleanup=nil
 end
 local function Register(name)
  if name~="Move" and name~="Resize" and name~="Rotate" then return end
  Registered[name]=true InstallAction()
  ActiveModeName=Mode()
  if name=="Rotate" then AttachRotate() end
- Gui.Enabled=true Toggle.Visible=Registered[Mode()]==true
+ Gui.Enabled=ToolEnabled Toggle.Visible=ToolEnabled and Registered[Mode()]==true
  return true
+end
+local function SetToolEnabled(value)
+ ToolEnabled=value==true
+ Env.JustXPiggyMultiSelectToolEnabled=ToolEnabled
+ if not ToolEnabled and Enabled then Reset() end
+ Gui.Enabled=ToolEnabled and (Registered.Move or Registered.Resize or Registered.Rotate)==true
+ Toggle.Visible=Gui.Enabled and Registered[Mode()]==true
 end
 local function Unregister(name)
  Registered[name]=nil
@@ -398,6 +414,7 @@ Env.JustXPiggyMultiSelectSetBaseAction=function(action)
  end
 end
 Env.JustXPiggyMultiSelectRebindAction=InstallAction
+Env.JustXPiggyMultiSelectSetEnabled=SetToolEnabled
 Env.MultiSelectCleanup=Cleanup
 InstallAction()
 ButtonColor()
