@@ -126,8 +126,8 @@ local cleaned = false
 local function Cleanup()
     if cleaned then return end
     cleaned = true
-    if type(Env.MultiSelectCleanup) == "function" then
-        pcall(Env.MultiSelectCleanup)
+    if type(Env.JustXPiggyMultiSelectUnregister) == "function" then
+        pcall(Env.JustXPiggyMultiSelectUnregister, "Move")
     end
     if cachedFunction and cachedIndex and originalConstant ~= nil then
         pcall(debug.setconstant, cachedFunction, cachedIndex, originalConstant)
@@ -142,12 +142,17 @@ local function Cleanup()
 end
 Env.MoveToolCleanup = Cleanup
 
--- Production multi-selection / group Move.
+-- Shared multi-selection controller for Move, Resize and Rotate.
 local MultiSelectOk, MultiSelectError = pcall(function()
-    local source = game:HttpGet("https://raw.githubusercontent.com/JustUser-ALT/JustX/9a1d008fd1e40e4e327c0dc984b7775a8681cec4/Games/Piggy/BM/Tools/MultiSelect.lua")
+    local source = game:HttpGet("https://raw.githubusercontent.com/JustUser-ALT/JustX/main/Games/Piggy/BM/Tools/MultiSelect.lua")
     local chunk, compileError = loadstring(source)
     assert(type(chunk) == "function", compileError or "[Move] MultiSelect loadstring failed")
-    chunk()
+    local register = chunk()
+    if type(register) ~= "function" then
+        register = Env.JustXPiggyMultiSelectRegister
+    end
+    assert(type(register) == "function", "[Move] MultiSelect register function unavailable")
+    register("Move")
 end)
 
 if not MultiSelectOk then
