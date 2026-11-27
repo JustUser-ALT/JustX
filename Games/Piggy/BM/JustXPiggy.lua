@@ -1,4 +1,4 @@
-local LibraryUrl = "https://raw.githubusercontent.com/JustUser-ALT/JustXLibrary/main/JustLib.lua"
+local LibraryUrl = "https://raw.githubusercontent.com/JustUser-ALT/JustXLibrary/63d2e9c979eb634b99b95a7d49c2352ad44bd40f/JustLib.lua"
 local LibraryOk, JL = pcall(function()
     return loadstring(game:HttpGet(LibraryUrl))()
 end)
@@ -8,9 +8,12 @@ if not LibraryOk or type(JL) ~= "table" or type(JL.Window) ~= "function" then
     return
 end
 
-pcall(function()
-    JL:LoadIconPack("https://molto.pages.dev/source.lua")
+local IconPackOk, IconPackResult = pcall(function()
+    return JL:LoadIconPack("https://molto.pages.dev/source.lua")
 end)
+if not IconPackOk or IconPackResult ~= true then
+    warn("[JustXPiggy] Lucide icon pack failed to load:", IconPackResult)
+end
 
 local Camera = workspace.CurrentCamera
 local ViewportWidth = Camera and Camera.ViewportSize.X or 0
