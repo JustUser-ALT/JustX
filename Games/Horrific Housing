@@ -1,4 +1,4 @@
-local BUILD_REVISION = "HH-2026.11.27-r9"
+local BUILD_REVISION = "HH-2026.11.28-r10"
 warn("[Horrific Housing] Loaded build: " .. BUILD_REVISION)
 
 local Players = game:GetService("Players")
@@ -237,7 +237,8 @@ local shotOutline
 local shotLabel
 local shotLastShots = {
     ["Freeze Ray"] = 0,
-    ["Paintball Gun"] = 0
+    ["Paintball Gun"] = 0,
+    ["Snowball"] = 0
 }
 local shotConnection
 local shotHolder
@@ -300,6 +301,33 @@ local function getPaintballParts()
     end
 
     return tool, muzzle, remote, range.Value, rate.Value
+end
+
+local function getSnowballParts()
+    local tool = getSelectedTool("Snowball")
+    local remote = tool and tool:FindFirstChild("onFire")
+    local handle = tool and tool:FindFirstChild("Handle")
+    local stats = tool and tool:FindFirstChild("Stats")
+    local range = stats and stats:FindFirstChild("Range")
+    local rate = stats and stats:FindFirstChild("Rate")
+
+    if not tool or not remote or not remote:IsA("RemoteEvent") then
+        return nil
+    end
+
+    local origin = handle and handle:IsA("BasePart") and handle.Position
+    if not origin then
+        local character = LocalPlayer.Character
+        local root = character and character:FindFirstChild("HumanoidRootPart")
+        origin = root and root.Position
+    end
+
+    if not origin then
+        return nil
+    end
+
+    return tool, remote, origin, tonumber(range and range.Value) or 300,
+        tonumber(rate and rate.Value) or 0.75
 end
 
 local function isFirstPerson(camera)
@@ -586,6 +614,42 @@ local function firePaintball()
     return "PAINTBALL REMOTE ERROR"
 end
 
+local function fireSnowball()
+    local tool, remote, origin, maxDistance, rate = getSnowballParts()
+    if not tool or not remote or not origin then
+        return "EQUIP SNOWBALL"
+    end
+
+    local now = os.clock()
+    local cooldown = math.max(rate, 0.05)
+    if now - shotLastShots["Snowball"] < cooldown then
+        return "SNOWBALL COOLDOWN"
+    end
+
+    local target = getShotTarget(origin, tool, maxDistance, false, false)
+    if not target or not target.Part or not target.Part.Parent then
+        return "NO SNOWBALL TARGET"
+    end
+
+    local targetPosition = target.Hit and target.Hit.Position or target.Part.Position
+    local direction = targetPosition - origin
+    if direction.Magnitude <= 0 then
+        return "INVALID SNOWBALL DIRECTION"
+    end
+
+    local fired = pcall(function()
+        remote:FireServer(direction.Unit, targetPosition)
+    end)
+
+    if fired then
+        shotLastShots["Snowball"] = now
+        flashShotButton(Color3.fromRGB(225, 240, 255))
+        return "SNOWBALL SENT"
+    end
+
+    return "SNOWBALL REMOTE ERROR"
+end
+
 local function showShotResults(results)
     if #results == 0 or not shotLabel or not shotLabel.Parent then
         return
@@ -609,6 +673,9 @@ local function fireSelectedTools()
     if selectedShotTools["Paintball Gun"] then
         table.insert(results, firePaintball())
     end
+    if selectedShotTools["Snowball"] then
+        table.insert(results, fireSnowball())
+    end
 
     showShotResults(results)
 end
@@ -622,6 +689,9 @@ local function fireEquippedTools()
 
     if getSelectedTool("Paintball Gun") then
         table.insert(results, firePaintball())
+    end
+    if getSelectedTool("Snowball") then
+        table.insert(results, fireSnowball())
     end
 
     showShotResults(results)
@@ -803,6 +873,7 @@ local function stopSharedShotButton()
     table.clear(selectedShotTools)
     shotLastShots["Freeze Ray"] = 0
     shotLastShots["Paintball Gun"] = 0
+    shotLastShots["Snowball"] = 0
 end
 
 local function setSelectedShotTools(selection)
@@ -811,12 +882,12 @@ local function setSelectedShotTools(selection)
     if type(selection) == "table" then
         for key, value in pairs(selection) do
             local name = type(key) == "number" and value or (value == true and key or nil)
-            if name == "Freeze Ray" or name == "Paintball Gun" then
+            if name == "Freeze Ray" or name == "Paintball Gun" or name == "Snowball" then
                 selectedShotTools[name] = true
             end
         end
     elseif type(selection) == "string" then
-        if selection == "Freeze Ray" or selection == "Paintball Gun" then
+        if selection == "Freeze Ray" or selection == "Paintball Gun" or selection == "Snowball" then
             selectedShotTools[selection] = true
         end
     end
@@ -900,7 +971,7 @@ end
 
 local shotToolDropdown = Misc:Dropdown({
     Name = "Shot Tools",
-    Options = {"Freeze Ray", "Paintball Gun"},
+    Options = {"Freeze Ray", "Paintball Gun", "Snowball"},
     MultiSelect = true,
     Search = false,
     Default = {},
