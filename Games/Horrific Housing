@@ -1,4 +1,4 @@
-local BUILD_REVISION = "HH-2026.11.28-r10"
+local BUILD_REVISION = "HH-2026.11.28-r11"
 warn("[Horrific Housing] Loaded build: " .. BUILD_REVISION)
 
 local Players = game:GetService("Players")
@@ -1454,30 +1454,57 @@ local mysteryGuiHidden = false
 local mysteryGuiStates = {}
 
 local function hideMysteryGui(gui)
-    if not mysteryGuiHidden or gui.Name ~= "MysteryGui" or not gui:IsA("ScreenGui") then
+    if not mysteryGuiHidden or not gui:IsA("ScreenGui")
+        or gui.Name ~= "MysteryGui" or not gui:IsDescendantOf(PlayerGui) then
         return
     end
 
-    if mysteryGuiStates[gui] == nil then
-        mysteryGuiStates[gui] = gui.Enabled
+    if not mysteryGuiStates[gui] then
+        local state = {
+            Enabled = gui.Enabled,
+            Applying = false,
+            Connection = nil
+        }
+        mysteryGuiStates[gui] = state
+
+        state.Connection = gui:GetPropertyChangedSignal("Enabled"):Connect(function()
+            if mysteryGuiHidden and gui.Parent and gui.Enabled and not state.Applying then
+                state.Applying = true
+                gui.Enabled = false
+                state.Applying = false
+            end
+        end)
     end
 
-    gui.Enabled = false
+    local state = mysteryGuiStates[gui]
+    if gui.Enabled then
+        state.Applying = true
+        gui.Enabled = false
+        state.Applying = false
+    end
 end
 
-keepConnection(PlayerGui.ChildAdded:Connect(hideMysteryGui))
+-- Watch the whole PlayerGui tree: the game may nest or recreate MysteryGui.
+keepConnection(PlayerGui.DescendantAdded:Connect(function(object)
+    if object:IsA("ScreenGui") and object.Name == "MysteryGui" then
+        hideMysteryGui(object)
+    end
+end))
 
 local function setHideRoleUI(enabled)
     mysteryGuiHidden = enabled
 
     if enabled then
-        for _, gui in ipairs(PlayerGui:GetChildren()) do
-            hideMysteryGui(gui)
+        for _, object in ipairs(PlayerGui:GetDescendants()) do
+            if object:IsA("ScreenGui") and object.Name == "MysteryGui" then
+                hideMysteryGui(object)
+            end
         end
     else
-        for gui, wasEnabled in pairs(mysteryGuiStates) do
+        for gui, state in pairs(mysteryGuiStates) do
+            disconnect(state.Connection)
             if gui.Parent then
-                gui.Enabled = wasEnabled
+                gui.Enabled = state.Enabled
             end
             mysteryGuiStates[gui] = nil
         end
